@@ -1,0 +1,5 @@
+PySide6
+pywin32
+vdf
+rapidfuzz
+pyinstaller
