@@ -1,0 +1,29 @@
+from __future__ import annotations
+
+import win32api
+from models import ExeInfo
+
+
+def read_exe_info(path: str) -> ExeInfo:
+    info = ExeInfo()
+    try:
+        data = win32api.GetFileVersionInfo(path, "\\")
+        lang, codepage = win32api.GetFileVersionInfo(path, "\\VarFileInfo\\Translation")[0]
+        base = f"\\StringFileInfo\\{lang:04X}{codepage:04X}\\"
+        for k, attr in {
+            "CompanyName": "company_name",
+            "ProductName": "product_name",
+            "FileDescription": "file_description",
+            "FileVersion": "file_version",
+            "ProductVersion": "product_version",
+            "OriginalFilename": "original_filename",
+            "InternalName": "internal_name",
+            "LegalCopyright": "legal_copyright",
+        }.items():
+            try:
+                setattr(info, attr, win32api.GetFileVersionInfo(path, base + k))
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return info
