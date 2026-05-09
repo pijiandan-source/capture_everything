@@ -70,6 +70,12 @@ pyinstaller --noconsole --onefile --name SteamGameInfoCollector main.py
 1. 推送一个 `v` 开头的 tag（例如 `v0.1.0`）。
 2. 工作流会构建并自动创建 GitHub Release，附带 `SteamGameInfoCollector-windows.zip`。
 
+### 方式 3（main 分支自动更新 rease-latest）
+
+推送到 `main` 后，工作流会构建 Windows 版并更新预发布版本 `rease-latest`，下载文件为 `SteamGameInfoCollector-windows.zip`。
+
+触发记录：2026-05-09 重新触发 rease-latest Windows EXE 构建。
+
 ### 本地对应命令
 ```bash
 pyinstaller --noconsole --name SteamGameInfoCollector main.py
