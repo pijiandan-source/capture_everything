@@ -6,6 +6,8 @@ from pathlib import Path
 import vdf
 import winreg
 
+from utils import norm_path
+
 
 def find_steam_path(logger=None) -> str:
     keys = [
@@ -37,6 +39,7 @@ def find_steam_path(logger=None) -> str:
 
 def parse_libraries(steam_path: str, logger=None) -> list[str]:
     libs = []
+    seen = set()
     lib_vdf = Path(steam_path) / "steamapps" / "libraryfolders.vdf"
     if logger:
         logger.debug("SteamResolver", f"libraryfolders.vdf path: {lib_vdf}")
@@ -48,11 +51,18 @@ def parse_libraries(steam_path: str, logger=None) -> list[str]:
     lf = data.get("libraryfolders", {})
     for k, v in lf.items():
         if isinstance(v, dict) and "path" in v:
-            libs.append(v["path"])
+            key = norm_path(v["path"])
+            if key not in seen:
+                libs.append(v["path"])
+                seen.add(key)
         elif str(k).isdigit() and isinstance(v, str):
-            libs.append(v)
-    if steam_path not in libs:
+            key = norm_path(v)
+            if key not in seen:
+                libs.append(v)
+                seen.add(key)
+    if norm_path(steam_path) not in seen:
         libs.append(steam_path)
+        seen.add(norm_path(steam_path))
     if logger:
         for lib in libs:
             logger.debug("SteamResolver", f"Steam Library: {lib}, exists={os.path.isdir(lib)}")

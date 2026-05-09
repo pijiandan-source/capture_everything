@@ -28,6 +28,7 @@ class ExeCandidate:
     exe_info: ExeInfo = field(default_factory=ExeInfo)
     size: int = 0
     relative_path: str = ""
+    category: str = "unknown"
 
 
 @dataclass

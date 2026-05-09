@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import subprocess
 from datetime import datetime
 
 from PySide6.QtCore import Qt, Signal
@@ -31,6 +30,8 @@ from PySide6.QtWidgets import (
 from copy_formatter import as_json, basic_text, exe_text, full_text, reg_text
 from models import ExeCandidate, GameInfo, RegistryCandidate
 from path_wildcard_converter import PathConvertContext, convert_multiline
+from windows_paths import clean_display_path
+from windows_shell import open_properties as shell_open_properties
 
 
 class DropLabel(QLabel):
@@ -105,10 +106,12 @@ class MainWindow(QMainWindow):
         clear_btn.clicked.connect(self.clear_all)
         self.debug_check = QCheckBox("Enable detailed Debug log")
         self.debug_check.toggled.connect(self.controller.set_debug)
+        self.log_all_registry_check = QCheckBox("Log all registry candidates")
         layout.addWidget(file_btn, 0, 3)
         layout.addWidget(dir_btn, 1, 3)
         layout.addWidget(clear_btn, 0, 4)
         layout.addWidget(self.debug_check, 1, 4)
+        layout.addWidget(self.log_all_registry_check, 0, 5)
         return box
 
     def _build_basic_tab(self) -> QWidget:
@@ -171,10 +174,10 @@ class MainWindow(QMainWindow):
     def _build_exe_tab(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
-        self.exe_table = QTableWidget(0, 12)
-        self.exe_table.setHorizontalHeaderLabels(["Recommended", "Score", "File", "Path", "Size", "CompanyName", "ProductName", "FileDescription", "Signature Status", "Signature Subject", "Reasons", "Actions"])
+        self.exe_table = QTableWidget(0, 13)
+        self.exe_table.setHorizontalHeaderLabels(["Recommended", "Score", "Category", "File", "Path", "Size", "CompanyName", "ProductName", "FileDescription", "Signature Status", "Signature Subject", "Reasons", "Actions"])
         self.exe_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
-        self.exe_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
+        self.exe_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Stretch)
         layout.addWidget(self.exe_table)
         return page
 
@@ -290,6 +293,7 @@ class MainWindow(QMainWindow):
 
     def open_path(self, path: str):
         path = self._clean_display_path(path)
+        self.controller.logger.debug("GUI", f"Button=Open path={path} empty={not bool(path)} exists={os.path.exists(path) if path else False}")
         if not path:
             return
         try:
@@ -300,26 +304,22 @@ class MainWindow(QMainWindow):
 
     def open_containing_folder(self, path: str):
         path = self._clean_display_path(path)
+        self.controller.logger.debug("GUI", f"Button=Folder path={path} empty={not bool(path)} exists={os.path.exists(path) if path else False}")
         if os.path.isfile(path):
             path = os.path.dirname(path)
         self.open_path(path)
 
     def open_properties(self, path: str):
         path = self._clean_display_path(path)
+        self.controller.logger.debug("GUI", f"Button=Properties path={path} empty={not bool(path)} exists={os.path.exists(path) if path else False}")
         if not path:
             return
-        try:
-            subprocess.Popen(["rundll32.exe", "shell32.dll,ShellExec_RunDLL", "properties", path])
-            self.controller.logger.info("Shell", f"Open file properties: {path}")
-        except Exception as exc:
-            self.controller.logger.exception("Shell", f"Open properties failed: {path}", exc)
-            QMessageBox.warning(self, "Open properties failed", str(exc))
+        ok = shell_open_properties(path, self.controller.logger)
+        if not ok:
+            self.statusBar().showMessage("Properties dialog failed; selected file in Explorer", 3000)
 
     def _clean_display_path(self, path: str) -> str:
-        path = (path or "").strip().strip('"')
-        if "," in path and path.lower().endswith(",0"):
-            path = path.rsplit(",", 1)[0].strip('"')
-        return path
+        return clean_display_path(path)
 
     def set_game_info(self, g: GameInfo):
         self.game = g
@@ -358,8 +358,9 @@ class MainWindow(QMainWindow):
         for row, c in enumerate(candidates):
             info = c.exe_info
             values = [
-                "*" if row == 0 else "",
+                "*" if c.path == self.game.main_exe_path else "",
                 str(c.score),
+                c.category,
                 os.path.basename(c.path),
                 c.path,
                 self._fmt_size(c.size),
@@ -377,11 +378,73 @@ class MainWindow(QMainWindow):
             actions = QWidget()
             h = QHBoxLayout(actions)
             h.setContentsMargins(0, 0, 0, 0)
-            for text, fn in [("Open", self.open_path), ("Folder", self.open_containing_folder), ("Properties", self.open_properties)]:
+            actions_spec = [
+                ("Copy Path", lambda cand=c, r=row: self.copy_exe_path(cand.path)),
+                ("Copy Info", lambda cand=c, r=row: self.copy_exe_info(cand, r)),
+                ("Details", lambda cand=c, r=row: self.show_exe_details(cand, r)),
+                ("Set Main", lambda cand=c, r=row: self.set_main_exe(cand, r)),
+                ("Folder", lambda cand=c, r=row: self.open_containing_folder(cand.path)),
+                ("Properties", lambda cand=c, r=row: self.open_properties(cand.path)),
+            ]
+            for text, callback in actions_spec:
                 b = QPushButton(text)
-                b.clicked.connect(lambda _, p=c.path, f=fn: f(p))
+                b.clicked.connect(lambda _, cb=callback: cb())
                 h.addWidget(b)
-            self.exe_table.setCellWidget(row, 11, actions)
+            self.exe_table.setCellWidget(row, 12, actions)
+
+    def copy_exe_path(self, path: str):
+        self.controller.logger.debug("GUI", f"Button=Copy Path path={path} empty={not bool(path)} exists={os.path.exists(path) if path else False}")
+        self.copy_text(path)
+
+    def copy_exe_info(self, candidate: ExeCandidate, row: int = -1):
+        self.controller.logger.debug("GUI", f"Button=Copy EXE Info row={row} path={candidate.path} exists={os.path.exists(candidate.path)}")
+        e = candidate.exe_info
+        text = (
+            f"Path: {candidate.path}\n"
+            f"RelativePath: {candidate.relative_path}\n"
+            f"Category: {candidate.category}\n"
+            f"Score: {candidate.score}\n"
+            f"Size: {candidate.size}\n"
+            f"CompanyName: {e.company_name}\n"
+            f"ProductName: {e.product_name}\n"
+            f"FileDescription: {e.file_description}\n"
+            f"FileVersion: {e.file_version}\n"
+            f"ProductVersion: {e.product_version}\n"
+            f"OriginalFilename: {e.original_filename}\n"
+            f"Digital Signature Status: {e.digital_signature_status}\n"
+            f"Digital Signature Subject: {e.digital_signature_subject}\n"
+            f"Digital Signature Issuer: {e.digital_signature_issuer}\n"
+            f"Digital Signature Error: {e.digital_signature_error}\n"
+            f"Reasons: {', '.join(candidate.reasons)}"
+        )
+        self.copy_text(text)
+
+    def show_exe_details(self, candidate: ExeCandidate, row: int = -1):
+        self.controller.logger.debug("GUI", f"Button=Details row={row} path={candidate.path} exists={os.path.exists(candidate.path)}")
+        e = candidate.exe_info
+        text = (
+            f"Path: {candidate.path}\n"
+            f"Category: {candidate.category}\n"
+            f"Score: {candidate.score}\n"
+            f"CompanyName: {e.company_name}\n"
+            f"ProductName: {e.product_name}\n"
+            f"FileDescription: {e.file_description}\n"
+            f"FileVersion: {e.file_version}\n"
+            f"ProductVersion: {e.product_version}\n"
+            f"OriginalFilename: {e.original_filename}\n"
+            f"Digital Signature Status: {e.digital_signature_status}\n"
+            f"Digital Signature Subject: {e.digital_signature_subject}\n"
+            f"Digital Signature Issuer: {e.digital_signature_issuer}\n"
+            f"Digital Signature Error: {e.digital_signature_error}"
+        )
+        QMessageBox.information(self, "EXE Details", text)
+
+    def set_main_exe(self, candidate: ExeCandidate, row: int = -1):
+        self.controller.logger.debug("GUI", f"Button=Set Main row={row} path={candidate.path} exists={os.path.exists(candidate.path)}")
+        self.game.main_exe_path = candidate.path
+        self.game.process_name = os.path.basename(candidate.path)
+        self.game.exe_info = candidate.exe_info
+        self.set_game_info(self.game)
 
     def _fill_registry_table(self, candidates: list[RegistryCandidate]):
         self.registry_table.setRowCount(len(candidates))

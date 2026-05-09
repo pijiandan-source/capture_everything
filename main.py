@@ -28,20 +28,23 @@ class Controller:
         self.logger.set_debug(enabled)
         self.logger.info("Logger", f"Detailed debug log: {'enabled' if enabled else 'disabled'}")
 
+    def log_all_registry_candidates(self) -> bool:
+        return bool(self.win and getattr(self.win, "log_all_registry_check", None) and self.win.log_all_registry_check.isChecked())
+
     def analyze_path(self, path: str):
         self.logger.info("Input", f"Dropped input: {path}")
-        g = collect(path=path, logger=self.logger)
+        g = collect(path=path, logger=self.logger, log_all_registry_candidates=self.log_all_registry_candidates())
         self.win.set_game_info(g)
 
     def analyze_appid(self, appid: str):
         self.logger.info("Input", f"Manual AppID: {appid}")
-        g = collect(appid=appid, logger=self.logger)
+        g = collect(appid=appid, logger=self.logger, log_all_registry_candidates=self.log_all_registry_candidates())
         self.win.set_game_info(g)
 
     def search_registry(self, game_name: str):
         current = self.win.current_game()
         current.game_name = game_name or current.game_name
-        regs = scan_registry(current.game_name, current.install_dir, current.steam_appid, current.main_exe_path, self.logger)
+        regs = scan_registry(current.game_name, current.install_dir, current.steam_appid, current.main_exe_path, self.logger, self.log_all_registry_candidates())
         current.registry_candidates = regs
         if regs:
             best = regs[0]
@@ -56,7 +59,7 @@ class Controller:
         self.win.set_game_info(current)
 
 
-def collect(appid: str = "", path: str = "", file: str = "", logger: DebugLogger | None = None) -> GameInfo:
+def collect(appid: str = "", path: str = "", file: str = "", logger: DebugLogger | None = None, log_all_registry_candidates: bool = False) -> GameInfo:
     g = GameInfo()
     if file:
         path = file
@@ -91,7 +94,7 @@ def collect(appid: str = "", path: str = "", file: str = "", logger: DebugLogger
             g.process_name = os.path.basename(main.path)
             g.exe_info = main.exe_info
 
-    regs = scan_registry(g.game_name, g.install_dir, g.steam_appid, g.main_exe_path, logger)
+    regs = scan_registry(g.game_name, g.install_dir, g.steam_appid, g.main_exe_path, logger, log_all_registry_candidates)
     g.registry_candidates = regs
     if regs:
         best = regs[0]
