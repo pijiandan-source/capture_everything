@@ -3,6 +3,8 @@ name: Build Windows EXE
 on:
   workflow_dispatch:
   push:
+    branches:
+      - main
     tags:
       - 'v*'
 
@@ -34,7 +36,7 @@ jobs:
           path: dist/SteamGameInfoCollector/
 
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
     needs: build
     runs-on: windows-latest
     permissions:
@@ -47,9 +49,12 @@ jobs:
           path: SteamGameInfoCollector
 
       - name: Zip artifact
-        run: powershell Compress-Archive -Path SteamGameInfoCollector\* -DestinationPath SteamGameInfoCollector-windows.zip
+        run: powershell Compress-Archive -Path SteamGameInfoCollector\* -DestinationPath SteamGameInfoCollector-windows.zip -Force
 
-      - name: Create GitHub Release
+      - name: Create or update GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || 'rease-latest' }}
+          name: ${{ github.ref_type == 'tag' && github.ref_name || 'Rease Latest Windows EXE' }}
           files: SteamGameInfoCollector-windows.zip
+          prerelease: ${{ github.ref_type != 'tag' }}
