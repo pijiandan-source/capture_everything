@@ -1,20 +1,54 @@
 from __future__ import annotations
+
 import json
+
 from models import GameInfo
 
+
 def basic_text(g: GameInfo) -> str:
-    return f"游戏名称: {g.game_name}\nSteam AppID: {g.steam_appid}\nSteam URL: {g.steam_url}\n安装目录: {g.install_dir}\n主 exe: {g.main_exe_path}\n进程名: {g.process_name}"
+    return (
+        f"Game Name: {g.game_name}\n"
+        f"Steam AppID: {g.steam_appid}\n"
+        f"Steam URL: {g.steam_url}\n"
+        f"Install Dir: {g.install_dir}\n"
+        f"Main EXE: {g.main_exe_path}\n"
+        f"Process Name: {g.process_name}"
+    )
+
 
 def exe_text(g: GameInfo) -> str:
     e = g.exe_info
-    return f"主 exe: {g.main_exe_path}\n进程名: {g.process_name}\nCompanyName: {e.company_name}\nProductName: {e.product_name}\nFileDescription: {e.file_description}\nFileVersion: {e.file_version}\nProductVersion: {e.product_version}\nOriginalFilename: {e.original_filename}"
+    return (
+        f"Main EXE: {g.main_exe_path}\n"
+        f"Process Name: {g.process_name}\n"
+        f"CompanyName: {e.company_name}\n"
+        f"ProductName: {e.product_name}\n"
+        f"FileDescription: {e.file_description}\n"
+        f"FileVersion: {e.file_version}\n"
+        f"ProductVersion: {e.product_version}\n"
+        f"OriginalFilename: {e.original_filename}\n"
+        f"Digital Signature Status: {e.digital_signature_status}\n"
+        f"Digital Signature Subject: {e.digital_signature_subject}\n"
+        f"Digital Signature Issuer: {e.digital_signature_issuer}\n"
+        f"Digital Signature Error: {e.digital_signature_error}"
+    )
+
 
 def reg_text(g: GameInfo) -> str:
-    r=g.registry
-    return f"DisplayName: {r['display_name']}\nInstallLocation: {r['install_location']}\nPublisher: {r['publisher']}\nDisplayIcon: {r['display_icon']}\nUninstallString: {r['uninstall_string']}\nRegistryKey: {r['key']}"
+    r = g.registry
+    return (
+        f"DisplayName: {r['display_name']}\n"
+        f"InstallLocation: {r['install_location']}\n"
+        f"Publisher: {r['publisher']}\n"
+        f"DisplayIcon: {r['display_icon']}\n"
+        f"UninstallString: {r['uninstall_string']}\n"
+        f"RegistryKey: {r['key']}"
+    )
+
 
 def full_text(g: GameInfo) -> str:
-    return basic_text(g)+"\n\n"+exe_text(g)+"\n\n"+reg_text(g)
+    return basic_text(g) + "\n\n" + exe_text(g) + "\n\n" + reg_text(g)
+
 
 def as_json(g: GameInfo) -> str:
     return json.dumps(g.to_dict(), ensure_ascii=False, indent=2)

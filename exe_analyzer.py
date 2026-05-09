@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import win32api
 from models import ExeInfo
+from signature_analyzer import apply_signature
 
 
-def read_exe_info(path: str) -> ExeInfo:
+def read_exe_info(path: str, logger=None) -> ExeInfo:
     info = ExeInfo()
     try:
         data = win32api.GetFileVersionInfo(path, "\\")
@@ -22,8 +23,12 @@ def read_exe_info(path: str) -> ExeInfo:
         }.items():
             try:
                 setattr(info, attr, win32api.GetFileVersionInfo(path, base + k))
+                if logger:
+                    logger.debug("ExeAnalyzer", f"{path} {k}={getattr(info, attr)}")
             except Exception:
                 pass
-    except Exception:
-        pass
+    except Exception as exc:
+        if logger:
+            logger.exception("ExeAnalyzer", f"Failed to read version info: {path}", exc)
+    apply_signature(info, path, logger)
     return info

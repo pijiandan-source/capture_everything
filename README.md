@@ -44,6 +44,8 @@ python main.py --file "C:\\Users\\xxx\\Desktop\\Example Game.url"
 pyinstaller --noconsole --name SteamGameInfoCollector main.py
 ```
 
+目录模式打包后，`dist/SteamGameInfoCollector/_internal` 是 PyInstaller 放置 Python 运行时、第三方依赖和 Qt 依赖文件的内部目录。使用目录模式时不要只复制单个 exe，也不要删除 `_internal`，否则程序可能无法启动。若想只分发一个文件，可以使用下面的 `--onefile` 模式。
+
 单文件:
 
 ```bash
@@ -54,6 +56,7 @@ pyinstaller --noconsole --onefile --name SteamGameInfoCollector main.py
 
 - 在非 Windows 环境下无法读取注册表/lnk/exe 版本信息。
 - 若未安装 Steam，会退回为本地路径和 exe/注册表猜测模式。
+- exe 的 `CompanyName`、`ProductName`、`FileDescription` 来自版本信息，不等于数字签名。数字签名会单独显示为“已签名 / 未签名 / 读取失败 / 未知”以及签名主体。
 
 
 ## 使用 GitHub Actions 快速出可执行文件

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
 
@@ -14,7 +14,10 @@ class ExeInfo:
     original_filename: str = ""
     internal_name: str = ""
     legal_copyright: str = ""
-    signature_publisher: str = ""
+    digital_signature_status: str = "\u672a\u77e5"
+    digital_signature_subject: str = "\u672a\u77e5"
+    digital_signature_issuer: str = "\u672a\u77e5"
+    digital_signature_error: str = ""
 
 
 @dataclass
@@ -23,6 +26,8 @@ class ExeCandidate:
     score: int = 0
     reasons: list[str] = field(default_factory=list)
     exe_info: ExeInfo = field(default_factory=ExeInfo)
+    size: int = 0
+    relative_path: str = ""
 
 
 @dataclass
@@ -43,6 +48,8 @@ class GameInfo:
     main_exe_path: str = ""
     process_name: str = ""
     exe_info: ExeInfo = field(default_factory=ExeInfo)
+    exe_candidates: list[ExeCandidate] = field(default_factory=list)
+    registry_candidates: list[RegistryCandidate] = field(default_factory=list)
     registry: dict[str, str] = field(default_factory=lambda: {
         "display_name": "",
         "install_location": "",
@@ -53,5 +60,4 @@ class GameInfo:
     })
 
     def to_dict(self) -> dict[str, Any]:
-        result = asdict(self)
-        return result
+        return asdict(self)
