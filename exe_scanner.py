@@ -7,14 +7,18 @@ from models import ExeCandidate
 from utils import norm_text
 
 
+def _safe_text(value) -> str:
+    return "" if value is None else str(value)
+
+
 def classify_exe(path: Path, rel: Path, info) -> tuple[str, list[str]]:
     text = " ".join([
         path.name,
         str(rel),
-        info.company_name,
-        info.product_name,
-        info.file_description,
-        info.original_filename,
+        _safe_text(info.company_name),
+        _safe_text(info.product_name),
+        _safe_text(info.file_description),
+        _safe_text(info.original_filename),
     ]).lower()
     reasons = []
     if any(x in text for x in ["easyanticheat", "eac", "battleye", "anti-cheat", "anticheat"]):
@@ -47,7 +51,7 @@ def score_exe(path: Path, rel: Path, game_name: str, info, size: int, category: 
     reasons = ["base +10"]
     name_norm = norm_text(path.stem)
     game_norm = norm_text(game_name)
-    metadata_norm = norm_text(" ".join([info.product_name, info.file_description, info.original_filename]))
+    metadata_norm = norm_text(" ".join([_safe_text(info.product_name), _safe_text(info.file_description), _safe_text(info.original_filename)]))
     rel_text = str(rel).replace("\\", "/").lower()
 
     if game_norm and game_norm in name_norm:

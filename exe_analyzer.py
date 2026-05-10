@@ -5,6 +5,10 @@ from models import ExeInfo
 from signature_analyzer import apply_signature
 
 
+def _metadata_text(value) -> str:
+    return "" if value is None else str(value)
+
+
 def read_exe_info(path: str, logger=None) -> ExeInfo:
     info = ExeInfo()
     try:
@@ -22,9 +26,10 @@ def read_exe_info(path: str, logger=None) -> ExeInfo:
             "LegalCopyright": "legal_copyright",
         }.items():
             try:
-                setattr(info, attr, win32api.GetFileVersionInfo(path, base + k))
+                value = _metadata_text(win32api.GetFileVersionInfo(path, base + k))
+                setattr(info, attr, value)
                 if logger:
-                    logger.debug("ExeAnalyzer", f"{path} {k}={getattr(info, attr)}")
+                    logger.debug("ExeAnalyzer", f"{path} {k}={value}")
             except Exception:
                 pass
     except Exception as exc:
