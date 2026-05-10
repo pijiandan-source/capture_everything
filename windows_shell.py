@@ -4,8 +4,11 @@ import ctypes
 import os
 import subprocess
 
+from windows_paths import normalize_registry_path
+
 
 SW_SHOWNORMAL = 1
+REGEDIT_LAST_KEY = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Applets\Regedit"
 
 
 def open_properties(path: str, logger=None) -> bool:
@@ -64,3 +67,50 @@ def open_properties(path: str, logger=None) -> bool:
         if logger:
             logger.exception("WindowsAPI", f"Fallback explorer failed for path={path}", exc)
         return False
+
+
+def open_registry_path(path: str, logger=None) -> tuple[bool, str]:
+    if logger:
+        logger.debug("RegistryShell", "Open registry requested")
+        logger.debug("RegistryShell", f"raw_path={path}")
+    normalized = normalize_registry_path(path, logger)
+    if logger:
+        logger.debug("RegistryShell", f"normalized_path={normalized}")
+    if not normalized:
+        return False, "当前没有可打开的注册表路径"
+
+    args = [
+        "reg", "add",
+        REGEDIT_LAST_KEY,
+        "/v", "LastKey",
+        "/d", normalized,
+        "/f",
+    ]
+    try:
+        if logger:
+            logger.debug("RegistryShell", f"LastKey={normalized}")
+            logger.debug("RegistryShell", f"reg add args={args}")
+        cp = subprocess.run(args, shell=False, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10)
+        if logger:
+            logger.debug("RegistryShell", f"reg add returncode={cp.returncode}")
+            logger.debug("RegistryShell", f"reg add stdout={cp.stdout.strip()}")
+            logger.debug("RegistryShell", f"reg add stderr={cp.stderr.strip()}")
+        if cp.returncode != 0:
+            message = (cp.stderr or cp.stdout or "注册表路径格式无法识别或无法打开").strip()
+            if logger:
+                logger.error("RegistryShell", f"reg add failed: {message}")
+            return False, message
+    except Exception as exc:
+        if logger:
+            logger.exception("RegistryShell", "reg add exception", exc)
+        return False, str(exc)
+
+    try:
+        subprocess.Popen(["regedit.exe"], shell=False)
+        if logger:
+            logger.debug("RegistryShell", "start regedit ok")
+        return True, ""
+    except Exception as exc:
+        if logger:
+            logger.exception("RegistryShell", "start regedit exception", exc)
+        return False, str(exc)

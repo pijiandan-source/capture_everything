@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 
 from models import GameInfo
+from windows_paths import normalize_registry_path
 
 
 def basic_text(g: GameInfo) -> str:
@@ -30,6 +31,8 @@ def exe_text(g: GameInfo) -> str:
         f"Digital Signature Status: {e.digital_signature_status}\n"
         f"Digital Signature Subject: {e.digital_signature_subject}\n"
         f"Digital Signature Issuer: {e.digital_signature_issuer}\n"
+        f"Digital Signature Raw Status: {e.digital_signature_raw_status}\n"
+        f"Digital Signature Status Message: {e.digital_signature_status_message}\n"
         f"Digital Signature Error: {e.digital_signature_error}"
     )
 
@@ -42,7 +45,7 @@ def reg_text(g: GameInfo) -> str:
         f"Publisher: {r['publisher']}\n"
         f"DisplayIcon: {r['display_icon']}\n"
         f"UninstallString: {r['uninstall_string']}\n"
-        f"RegistryKey: {r['key']}"
+        f"RegistryKey: {normalize_registry_path(r['key'])}"
     )
 
 

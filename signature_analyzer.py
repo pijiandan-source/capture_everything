@@ -12,6 +12,17 @@ STATUS_UNKNOWN = "\u672a\u77e5"
 STATUS_SIGNED = "\u5df2\u7b7e\u540d"
 STATUS_UNSIGNED = "\u672a\u7b7e\u540d"
 STATUS_FAILED = "\u7b7e\u540d\u8bfb\u53d6\u5931\u8d25"
+STATUS_HASH_MISMATCH = "\u7b7e\u540d\u54c8\u5e0c\u4e0d\u5339\u914d"
+STATUS_NOT_TRUSTED = "\u7b7e\u540d\u4e0d\u53d7\u4fe1\u4efb"
+STATUS_EXCEPTION = "\u7b7e\u540d\u8bfb\u53d6\u5f02\u5e38"
+
+STATUS_MAP = {
+    "Valid": STATUS_SIGNED,
+    "NotSigned": STATUS_UNSIGNED,
+    "HashMismatch": STATUS_HASH_MISMATCH,
+    "NotTrusted": STATUS_NOT_TRUSTED,
+    "UnknownError": STATUS_EXCEPTION,
+}
 
 
 PS_SCRIPT = r"""
@@ -65,8 +76,10 @@ def _run_signature_script(path: str, logger=None) -> subprocess.CompletedProcess
 def analyze_signature(path: str, logger=None) -> dict[str, str]:
     result = {
         "status": STATUS_UNKNOWN,
-        "subject": STATUS_UNKNOWN,
-        "issuer": STATUS_UNKNOWN,
+        "subject": "",
+        "issuer": "",
+        "raw_status": "",
+        "status_message": "",
         "error": "",
     }
     exists = os.path.exists(path)
@@ -80,6 +93,7 @@ def analyze_signature(path: str, logger=None) -> dict[str, str]:
     if not exists:
         result["status"] = STATUS_FAILED
         result["error"] = "Path does not exist."
+        result["status_message"] = result["error"]
         return result
 
     try:
@@ -87,24 +101,28 @@ def analyze_signature(path: str, logger=None) -> dict[str, str]:
         if cp.returncode != 0:
             result["status"] = STATUS_FAILED
             result["error"] = (cp.stderr or cp.stdout or "").strip()
+            result["status_message"] = result["error"]
             return result
         data = json.loads(cp.stdout.strip() or "{}")
         status = data.get("Status", "")
+        status_message = data.get("StatusMessage", "") or ""
+        result["raw_status"] = status
+        result["status_message"] = status_message
+        result["status"] = STATUS_MAP.get(status, STATUS_UNKNOWN)
         if status == "Valid":
-            result["status"] = STATUS_SIGNED
-            result["subject"] = _subject_name(data.get("Subject", "")) or STATUS_UNKNOWN
-            result["issuer"] = _subject_name(data.get("Issuer", "")) or STATUS_UNKNOWN
-        elif status == "NotSigned":
-            result["status"] = STATUS_UNSIGNED
-            result["error"] = data.get("StatusMessage", "")
+            result["subject"] = _subject_name(data.get("Subject", ""))
+            result["issuer"] = _subject_name(data.get("Issuer", ""))
+        elif status in STATUS_MAP:
+            result["subject"] = _subject_name(data.get("Subject", ""))
+            result["issuer"] = _subject_name(data.get("Issuer", ""))
         elif status:
-            result["status"] = STATUS_FAILED
-            result["error"] = data.get("StatusMessage", "") or status
+            result["error"] = status_message or status
         if logger:
-            logger.debug("Signature", f"Signature result: path={path}, status={result['status']}, subject={result['subject']}, issuer={result['issuer']}, error={result['error']}")
+            logger.debug("Signature", f"Signature result: path={path}, status={result['status']}, raw_status={result['raw_status']}, subject={result['subject']}, issuer={result['issuer']}, status_message={result['status_message']}, error={result['error']}")
     except Exception as exc:
         result["status"] = STATUS_FAILED
         result["error"] = repr(exc)
+        result["status_message"] = result["error"]
         if logger:
             logger.exception("Signature", f"Signature read exception: {path}", exc)
     return result
@@ -115,5 +133,7 @@ def apply_signature(info: ExeInfo, path: str, logger=None) -> ExeInfo:
     info.digital_signature_status = sig["status"]
     info.digital_signature_subject = sig["subject"]
     info.digital_signature_issuer = sig["issuer"]
+    info.digital_signature_raw_status = sig["raw_status"]
+    info.digital_signature_status_message = sig["status_message"]
     info.digital_signature_error = sig["error"]
     return info

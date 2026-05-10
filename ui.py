@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMainWindow,
     QMessageBox,
+    QMenu,
     QPlainTextEdit,
     QPushButton,
     QTableWidget,
@@ -30,8 +31,8 @@ from PySide6.QtWidgets import (
 from copy_formatter import as_json, basic_text, exe_text, full_text, reg_text
 from models import ExeCandidate, GameInfo, RegistryCandidate
 from path_wildcard_converter import PathConvertContext, convert_multiline
-from windows_paths import clean_display_path
-from windows_shell import open_properties as shell_open_properties
+from windows_paths import clean_display_path, normalize_registry_path
+from windows_shell import open_properties as shell_open_properties, open_registry_path as shell_open_registry_path
 
 
 class DropLabel(QLabel):
@@ -130,6 +131,8 @@ class MainWindow(QMainWindow):
                 ("exe_sig_status", "Digital Signature Status"),
                 ("exe_sig_subject", "Digital Signature Subject"),
                 ("exe_sig_issuer", "Digital Signature Issuer"),
+                ("exe_sig_raw_status", "Digital Signature Raw Status"),
+                ("exe_sig_message", "Digital Signature Status Message"),
             ]),
             ("Registry", [
                 ("reg_name", "DisplayName"),
@@ -166,6 +169,10 @@ class MainWindow(QMainWindow):
                 prop_btn = QPushButton("Properties")
                 prop_btn.clicked.connect(lambda: self.open_properties(self.fields["main_exe_path"].text()))
                 row.addWidget(prop_btn)
+            if key == "reg_key":
+                reg_btn = QPushButton("Open Registry")
+                reg_btn.clicked.connect(lambda: self.open_registry(self.fields["reg_key"].text()))
+                row.addWidget(reg_btn)
             wrap = QWidget()
             wrap.setLayout(row)
             form.addRow(label, wrap)
@@ -174,20 +181,26 @@ class MainWindow(QMainWindow):
     def _build_exe_tab(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
-        self.exe_table = QTableWidget(0, 13)
-        self.exe_table.setHorizontalHeaderLabels(["Recommended", "Score", "Category", "File", "Path", "Size", "CompanyName", "ProductName", "FileDescription", "Signature Status", "Signature Subject", "Reasons", "Actions"])
+        self.exe_table = QTableWidget(0, 16)
+        self.exe_table.setHorizontalHeaderLabels(["Recommended", "Score", "Category", "File", "Path", "Size", "CompanyName", "ProductName", "FileDescription", "Signature Status", "Signature Subject", "Signature Issuer", "Signature Raw Status", "Signature Message", "Reasons", "Actions"])
         self.exe_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         self.exe_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Stretch)
+        self.exe_table.itemDoubleClicked.connect(self.copy_table_item)
+        self.exe_table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.exe_table.customContextMenuRequested.connect(self.show_exe_context_menu)
         layout.addWidget(self.exe_table)
         return page
 
     def _build_registry_tab(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
-        self.registry_table = QTableWidget(0, 8)
-        self.registry_table.setHorizontalHeaderLabels(["Recommended", "Score", "DisplayName", "InstallLocation", "Publisher", "DisplayIcon", "UninstallString", "Reasons"])
+        self.registry_table = QTableWidget(0, 9)
+        self.registry_table.setHorizontalHeaderLabels(["Recommended", "Score", "DisplayName", "InstallLocation", "Publisher", "DisplayIcon", "UninstallString", "RegistryKey", "Reasons"])
         self.registry_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         self.registry_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
+        self.registry_table.itemDoubleClicked.connect(self.copy_table_item)
+        self.registry_table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.registry_table.customContextMenuRequested.connect(self.show_registry_context_menu)
         layout.addWidget(self.registry_table)
         return page
 
@@ -259,15 +272,19 @@ class MainWindow(QMainWindow):
     def append_log(self, line: str):
         self.log.appendPlainText(line)
 
-    def copy_text(self, text: str):
-        if not text.strip():
+    def copy_text(self, text: str, message: str = "Copied", allow_empty: bool = False):
+        text = "" if text is None else str(text)
+        if not allow_empty and not text.strip():
             QMessageBox.information(self, "Info", "Nothing to copy")
             return
         QApplication.clipboard().setText(text)
-        self.statusBar().showMessage("Copied", 1500)
+        self.statusBar().showMessage(message, 1500)
 
     def copy_field(self, key: str):
-        self.copy_text(self.fields[key].text())
+        text = self.fields[key].text()
+        if key == "reg_key":
+            text = normalize_registry_path(text, self.controller.logger)
+        self.copy_text(text)
 
     def copy_log(self):
         self.copy_text(self.log.toPlainText())
@@ -318,6 +335,16 @@ class MainWindow(QMainWindow):
         if not ok:
             self.statusBar().showMessage("Properties dialog failed; selected file in Explorer", 3000)
 
+    def open_registry(self, path: str):
+        if not path.strip():
+            QMessageBox.information(self, "Info", "当前没有可打开的注册表路径")
+            return
+        ok, message = shell_open_registry_path(path, self.controller.logger)
+        if ok:
+            self.statusBar().showMessage("Registry opened", 2000)
+        else:
+            QMessageBox.warning(self, "Open registry failed", message or "注册表路径格式无法识别或无法打开")
+
     def _clean_display_path(self, path: str) -> str:
         return clean_display_path(path)
 
@@ -339,12 +366,14 @@ class MainWindow(QMainWindow):
             "exe_sig_status": g.exe_info.digital_signature_status,
             "exe_sig_subject": g.exe_info.digital_signature_subject,
             "exe_sig_issuer": g.exe_info.digital_signature_issuer,
+            "exe_sig_raw_status": g.exe_info.digital_signature_raw_status,
+            "exe_sig_message": g.exe_info.digital_signature_status_message,
             "reg_name": g.registry["display_name"],
             "reg_install": g.registry["install_location"],
             "reg_pub": g.registry["publisher"],
             "reg_icon": g.registry["display_icon"],
             "reg_uninstall": g.registry["uninstall_string"],
-            "reg_key": g.registry["key"],
+            "reg_key": normalize_registry_path(g.registry["key"], self.controller.logger),
         }
         for k, v in values.items():
             self.fields[k].setText(v or "")
@@ -369,6 +398,9 @@ class MainWindow(QMainWindow):
                 info.file_description,
                 info.digital_signature_status,
                 info.digital_signature_subject,
+                info.digital_signature_issuer,
+                info.digital_signature_raw_status,
+                info.digital_signature_status_message,
                 ", ".join(c.reasons),
             ]
             for col, value in enumerate(values):
@@ -390,7 +422,7 @@ class MainWindow(QMainWindow):
                 b = QPushButton(text)
                 b.clicked.connect(lambda _, cb=callback: cb())
                 h.addWidget(b)
-            self.exe_table.setCellWidget(row, 12, actions)
+            self.exe_table.setCellWidget(row, 15, actions)
 
     def copy_exe_path(self, path: str):
         self.controller.logger.debug("GUI", f"Button=Copy Path path={path} empty={not bool(path)} exists={os.path.exists(path) if path else False}")
@@ -399,24 +431,7 @@ class MainWindow(QMainWindow):
     def copy_exe_info(self, candidate: ExeCandidate, row: int = -1):
         self.controller.logger.debug("GUI", f"Button=Copy EXE Info row={row} path={candidate.path} exists={os.path.exists(candidate.path)}")
         e = candidate.exe_info
-        text = (
-            f"Path: {candidate.path}\n"
-            f"RelativePath: {candidate.relative_path}\n"
-            f"Category: {candidate.category}\n"
-            f"Score: {candidate.score}\n"
-            f"Size: {candidate.size}\n"
-            f"CompanyName: {e.company_name}\n"
-            f"ProductName: {e.product_name}\n"
-            f"FileDescription: {e.file_description}\n"
-            f"FileVersion: {e.file_version}\n"
-            f"ProductVersion: {e.product_version}\n"
-            f"OriginalFilename: {e.original_filename}\n"
-            f"Digital Signature Status: {e.digital_signature_status}\n"
-            f"Digital Signature Subject: {e.digital_signature_subject}\n"
-            f"Digital Signature Issuer: {e.digital_signature_issuer}\n"
-            f"Digital Signature Error: {e.digital_signature_error}\n"
-            f"Reasons: {', '.join(candidate.reasons)}"
-        )
+        text = self.format_full_exe_info(candidate)
         self.copy_text(text)
 
     def show_exe_details(self, candidate: ExeCandidate, row: int = -1):
@@ -435,6 +450,8 @@ class MainWindow(QMainWindow):
             f"Digital Signature Status: {e.digital_signature_status}\n"
             f"Digital Signature Subject: {e.digital_signature_subject}\n"
             f"Digital Signature Issuer: {e.digital_signature_issuer}\n"
+            f"Digital Signature Raw Status: {e.digital_signature_raw_status}\n"
+            f"Digital Signature Status Message: {e.digital_signature_status_message}\n"
             f"Digital Signature Error: {e.digital_signature_error}"
         )
         QMessageBox.information(self, "EXE Details", text)
@@ -458,6 +475,7 @@ class MainWindow(QMainWindow):
                 vals.get("Publisher", ""),
                 vals.get("DisplayIcon", ""),
                 vals.get("UninstallString", ""),
+                normalize_registry_path(c.key, self.controller.logger),
                 ", ".join(c.reasons),
             ]
             for col, value in enumerate(values):
@@ -469,6 +487,133 @@ class MainWindow(QMainWindow):
         if not size:
             return ""
         return f"{size / 1024 / 1024:.2f} MB"
+
+    def copy_table_item(self, item: QTableWidgetItem | None):
+        text = item.text() if item else ""
+        self.copy_text(text, "已复制当前单元格", allow_empty=True)
+
+    def _table_cell_text(self, table: QTableWidget, row: int, col: int) -> str:
+        item = table.item(row, col)
+        return item.text() if item else ""
+
+    def _add_menu_action(self, menu: QMenu, title: str, callback):
+        action = menu.addAction(title)
+        action.triggered.connect(callback)
+
+    def show_exe_context_menu(self, pos):
+        row = self.exe_table.rowAt(pos.y())
+        col = self.exe_table.columnAt(pos.x())
+        if row < 0 or row >= len(self.game.exe_candidates):
+            return
+        candidate = self.game.exe_candidates[row]
+        menu = QMenu(self)
+        self._add_menu_action(menu, "复制当前单元格", lambda: self.copy_text(self._table_cell_text(self.exe_table, row, col), "已复制当前单元格", allow_empty=True))
+        self._add_menu_action(menu, "复制当前行", lambda: self.copy_text(self.format_exe_row(candidate), "已复制当前行"))
+        self._add_menu_action(menu, "复制 exe 路径", lambda: self.copy_text(candidate.path, "已复制 exe 路径", allow_empty=True))
+        self._add_menu_action(menu, "复制 exe 文件名", lambda: self.copy_text(os.path.basename(candidate.path), "已复制 exe 文件名", allow_empty=True))
+        self._add_menu_action(menu, "复制签名信息", lambda: self.copy_text(self.format_signature_info(candidate), "已复制签名信息", allow_empty=True))
+        self._add_menu_action(menu, "复制完整 exe 信息", lambda: self.copy_text(self.format_full_exe_info(candidate), "已复制完整 exe 信息"))
+        menu.addSeparator()
+        self._add_menu_action(menu, "打开所在目录", lambda: self.open_containing_folder(candidate.path))
+        self._add_menu_action(menu, "打开属性", lambda: self.open_properties(candidate.path))
+        self._add_menu_action(menu, "选择为主 exe", lambda: self.set_main_exe(candidate, row))
+        menu.exec(self.exe_table.viewport().mapToGlobal(pos))
+
+    def show_registry_context_menu(self, pos):
+        row = self.registry_table.rowAt(pos.y())
+        col = self.registry_table.columnAt(pos.x())
+        if row < 0 or row >= len(self.game.registry_candidates):
+            return
+        candidate = self.game.registry_candidates[row]
+        vals = candidate.values
+        menu = QMenu(self)
+        self._add_menu_action(menu, "复制当前单元格", lambda: self.copy_text(self._table_cell_text(self.registry_table, row, col), "已复制当前单元格", allow_empty=True))
+        self._add_menu_action(menu, "复制当前行", lambda: self.copy_text(self.format_registry_info(candidate), "已复制当前行"))
+        self._add_menu_action(menu, "复制 DisplayName", lambda: self.copy_text(vals.get("DisplayName", ""), "已复制 DisplayName", allow_empty=True))
+        self._add_menu_action(menu, "复制 InstallLocation", lambda: self.copy_text(vals.get("InstallLocation", ""), "已复制 InstallLocation", allow_empty=True))
+        self._add_menu_action(menu, "复制 Publisher", lambda: self.copy_text(vals.get("Publisher", ""), "已复制 Publisher", allow_empty=True))
+        self._add_menu_action(menu, "复制 DisplayIcon", lambda: self.copy_text(vals.get("DisplayIcon", ""), "已复制 DisplayIcon", allow_empty=True))
+        self._add_menu_action(menu, "复制 UninstallString", lambda: self.copy_text(vals.get("UninstallString", ""), "已复制 UninstallString", allow_empty=True))
+        self._add_menu_action(menu, "复制注册表路径", lambda: self.copy_text(normalize_registry_path(candidate.key, self.controller.logger), "已复制注册表路径", allow_empty=True))
+        self._add_menu_action(menu, "复制完整注册表信息", lambda: self.copy_text(self.format_registry_info(candidate), "已复制完整注册表信息"))
+        menu.addSeparator()
+        self._add_menu_action(menu, "打开 InstallLocation", lambda: self.open_path(vals.get("InstallLocation", "")))
+        self._add_menu_action(menu, "打开注册表", lambda: self.open_registry(candidate.key))
+        self._add_menu_action(menu, "选择为当前注册表项", lambda: self.set_current_registry(candidate))
+        menu.exec(self.registry_table.viewport().mapToGlobal(pos))
+
+    def format_signature_info(self, candidate: ExeCandidate) -> str:
+        e = candidate.exe_info
+        return (
+            f"数字签名状态: {e.digital_signature_status}\n"
+            f"签名主体: {e.digital_signature_subject}\n"
+            f"签名颁发者: {e.digital_signature_issuer}\n"
+            f"签名原始状态: {e.digital_signature_raw_status}\n"
+            f"签名状态说明: {e.digital_signature_status_message}"
+        )
+
+    def format_exe_row(self, candidate: ExeCandidate) -> str:
+        e = candidate.exe_info
+        return (
+            f"文件名: {os.path.basename(candidate.path)}\n"
+            f"路径: {candidate.path}\n"
+            f"分类: {candidate.category}\n"
+            f"文件大小: {candidate.size}\n"
+            f"CompanyName: {e.company_name}\n"
+            f"ProductName: {e.product_name}\n"
+            f"FileDescription: {e.file_description}\n"
+            f"FileVersion: {e.file_version}\n"
+            f"ProductVersion: {e.product_version}\n"
+            f"OriginalFilename: {e.original_filename}\n"
+            f"{self.format_signature_info(candidate)}"
+        )
+
+    def format_full_exe_info(self, candidate: ExeCandidate) -> str:
+        e = candidate.exe_info
+        return (
+            f"文件名: {os.path.basename(candidate.path)}\n"
+            f"完整路径: {candidate.path}\n"
+            f"相对路径: {candidate.relative_path}\n"
+            f"文件大小: {candidate.size}\n"
+            f"分类标签: {candidate.category}\n"
+            f"CompanyName: {e.company_name}\n"
+            f"ProductName: {e.product_name}\n"
+            f"FileDescription: {e.file_description}\n"
+            f"FileVersion: {e.file_version}\n"
+            f"ProductVersion: {e.product_version}\n"
+            f"OriginalFilename: {e.original_filename}\n"
+            f"InternalName: {e.internal_name}\n"
+            f"LegalCopyright: {e.legal_copyright}\n"
+            f"{self.format_signature_info(candidate)}\n"
+            f"评分: {candidate.score}\n"
+            f"评分原因: {', '.join(candidate.reasons)}"
+        )
+
+    def format_registry_info(self, candidate: RegistryCandidate) -> str:
+        vals = candidate.values
+        return (
+            f"DisplayName: {vals.get('DisplayName', '')}\n"
+            f"InstallLocation: {vals.get('InstallLocation', '')}\n"
+            f"Publisher: {vals.get('Publisher', '')}\n"
+            f"DisplayIcon: {vals.get('DisplayIcon', '')}\n"
+            f"UninstallString: {vals.get('UninstallString', '')}\n"
+            f"RegistryKey: {normalize_registry_path(candidate.key, self.controller.logger)}\n"
+            f"Score: {candidate.score}\n"
+            f"Reasons: {', '.join(candidate.reasons)}"
+        )
+
+    def set_current_registry(self, candidate: RegistryCandidate):
+        vals = candidate.values
+        self.game.registry = {
+            "display_name": vals.get("DisplayName", ""),
+            "install_location": vals.get("InstallLocation", ""),
+            "publisher": vals.get("Publisher", ""),
+            "display_icon": vals.get("DisplayIcon", ""),
+            "uninstall_string": vals.get("UninstallString", ""),
+            "key": normalize_registry_path(candidate.key, self.controller.logger),
+        }
+        self.set_game_info(self.game)
+        self.statusBar().showMessage("Registry candidate selected", 1500)
 
     def current_game(self) -> GameInfo:
         g = self.game
@@ -483,13 +628,15 @@ class MainWindow(QMainWindow):
         g.exe_info.digital_signature_status = self.fields["exe_sig_status"].text()
         g.exe_info.digital_signature_subject = self.fields["exe_sig_subject"].text()
         g.exe_info.digital_signature_issuer = self.fields["exe_sig_issuer"].text()
+        g.exe_info.digital_signature_raw_status = self.fields["exe_sig_raw_status"].text()
+        g.exe_info.digital_signature_status_message = self.fields["exe_sig_message"].text()
         g.registry = {
             "display_name": self.fields["reg_name"].text(),
             "install_location": self.fields["reg_install"].text(),
             "publisher": self.fields["reg_pub"].text(),
             "display_icon": self.fields["reg_icon"].text(),
             "uninstall_string": self.fields["reg_uninstall"].text(),
-            "key": self.fields["reg_key"].text(),
+            "key": normalize_registry_path(self.fields["reg_key"].text(), self.controller.logger),
         }
         return g
 

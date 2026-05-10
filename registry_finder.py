@@ -6,7 +6,7 @@ from rapidfuzz import fuzz
 
 from models import RegistryCandidate
 from utils import norm_path
-from windows_paths import clean_display_path, extract_exe_from_command
+from windows_paths import clean_display_path, extract_exe_from_command, normalize_registry_path
 
 UNINSTALL_ROOTS = [
     (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"),
@@ -23,7 +23,7 @@ def readable_key(root, sub: str) -> str:
         root_name = "HKEY_CURRENT_USER"
     else:
         root_name = str(root)
-    return f"{root_name}\\{sub}"
+    return normalize_registry_path(f"{root_name}\\{sub}")
 
 
 def _read_values(k):

@@ -17,6 +17,8 @@ class ExeInfo:
     digital_signature_status: str = "\u672a\u77e5"
     digital_signature_subject: str = "\u672a\u77e5"
     digital_signature_issuer: str = "\u672a\u77e5"
+    digital_signature_raw_status: str = ""
+    digital_signature_status_message: str = ""
     digital_signature_error: str = ""
 
 
