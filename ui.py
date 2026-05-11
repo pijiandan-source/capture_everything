@@ -131,6 +131,10 @@ class MainWindow(QMainWindow):
                 ("exe_sig_status", "Digital Signature Status"),
                 ("exe_sig_subject", "Digital Signature Subject"),
                 ("exe_sig_issuer", "Digital Signature Issuer"),
+                ("exe_sig_subject_simple", "Digital Signature Subject Simple"),
+                ("exe_sig_issuer_simple", "Digital Signature Issuer Simple"),
+                ("exe_sig_subject_raw", "Digital Signature Subject Raw"),
+                ("exe_sig_issuer_raw", "Digital Signature Issuer Raw"),
                 ("exe_sig_raw_status", "Digital Signature Raw Status"),
                 ("exe_sig_message", "Digital Signature Status Message"),
             ]),
@@ -181,8 +185,8 @@ class MainWindow(QMainWindow):
     def _build_exe_tab(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
-        self.exe_table = QTableWidget(0, 16)
-        self.exe_table.setHorizontalHeaderLabels(["Recommended", "Score", "Category", "File", "Path", "Size", "CompanyName", "ProductName", "FileDescription", "Signature Status", "Signature Subject", "Signature Issuer", "Signature Raw Status", "Signature Message", "Reasons", "Actions"])
+        self.exe_table = QTableWidget(0, 18)
+        self.exe_table.setHorizontalHeaderLabels(["Recommended", "Score", "Category", "File", "Path", "Size", "CompanyName", "ProductName", "FileDescription", "Signature Status", "Signature Subject", "Signature Issuer", "Subject Raw", "Issuer Raw", "Signature Raw Status", "Signature Message", "Reasons", "Actions"])
         self.exe_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         self.exe_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Stretch)
         self.exe_table.itemDoubleClicked.connect(self.copy_table_item)
@@ -366,6 +370,10 @@ class MainWindow(QMainWindow):
             "exe_sig_status": g.exe_info.digital_signature_status,
             "exe_sig_subject": g.exe_info.digital_signature_subject,
             "exe_sig_issuer": g.exe_info.digital_signature_issuer,
+            "exe_sig_subject_simple": g.exe_info.digital_signature_subject_simple,
+            "exe_sig_issuer_simple": g.exe_info.digital_signature_issuer_simple,
+            "exe_sig_subject_raw": g.exe_info.digital_signature_subject_raw,
+            "exe_sig_issuer_raw": g.exe_info.digital_signature_issuer_raw,
             "exe_sig_raw_status": g.exe_info.digital_signature_raw_status,
             "exe_sig_message": g.exe_info.digital_signature_status_message,
             "reg_name": g.registry["display_name"],
@@ -399,6 +407,8 @@ class MainWindow(QMainWindow):
                 info.digital_signature_status,
                 info.digital_signature_subject,
                 info.digital_signature_issuer,
+                info.digital_signature_subject_raw,
+                info.digital_signature_issuer_raw,
                 info.digital_signature_raw_status,
                 info.digital_signature_status_message,
                 ", ".join(c.reasons),
@@ -422,7 +432,7 @@ class MainWindow(QMainWindow):
                 b = QPushButton(text)
                 b.clicked.connect(lambda _, cb=callback: cb())
                 h.addWidget(b)
-            self.exe_table.setCellWidget(row, 15, actions)
+            self.exe_table.setCellWidget(row, 17, actions)
 
     def copy_exe_path(self, path: str):
         self.controller.logger.debug("GUI", f"Button=Copy Path path={path} empty={not bool(path)} exists={os.path.exists(path) if path else False}")
@@ -450,6 +460,10 @@ class MainWindow(QMainWindow):
             f"Digital Signature Status: {e.digital_signature_status}\n"
             f"Digital Signature Subject: {e.digital_signature_subject}\n"
             f"Digital Signature Issuer: {e.digital_signature_issuer}\n"
+            f"Digital Signature Subject Simple: {e.digital_signature_subject_simple}\n"
+            f"Digital Signature Issuer Simple: {e.digital_signature_issuer_simple}\n"
+            f"Digital Signature Subject Raw: {e.digital_signature_subject_raw}\n"
+            f"Digital Signature Issuer Raw: {e.digital_signature_issuer_raw}\n"
             f"Digital Signature Raw Status: {e.digital_signature_raw_status}\n"
             f"Digital Signature Status Message: {e.digital_signature_status_message}\n"
             f"Digital Signature Error: {e.digital_signature_error}"
@@ -548,6 +562,10 @@ class MainWindow(QMainWindow):
             f"数字签名状态: {e.digital_signature_status}\n"
             f"签名主体: {e.digital_signature_subject}\n"
             f"签名颁发者: {e.digital_signature_issuer}\n"
+            f"SubjectSimple: {e.digital_signature_subject_simple}\n"
+            f"IssuerSimple: {e.digital_signature_issuer_simple}\n"
+            f"SubjectRaw: {e.digital_signature_subject_raw}\n"
+            f"IssuerRaw: {e.digital_signature_issuer_raw}\n"
             f"签名原始状态: {e.digital_signature_raw_status}\n"
             f"签名状态说明: {e.digital_signature_status_message}"
         )
@@ -628,6 +646,10 @@ class MainWindow(QMainWindow):
         g.exe_info.digital_signature_status = self.fields["exe_sig_status"].text()
         g.exe_info.digital_signature_subject = self.fields["exe_sig_subject"].text()
         g.exe_info.digital_signature_issuer = self.fields["exe_sig_issuer"].text()
+        g.exe_info.digital_signature_subject_simple = self.fields["exe_sig_subject_simple"].text()
+        g.exe_info.digital_signature_issuer_simple = self.fields["exe_sig_issuer_simple"].text()
+        g.exe_info.digital_signature_subject_raw = self.fields["exe_sig_subject_raw"].text()
+        g.exe_info.digital_signature_issuer_raw = self.fields["exe_sig_issuer_raw"].text()
         g.exe_info.digital_signature_raw_status = self.fields["exe_sig_raw_status"].text()
         g.exe_info.digital_signature_status_message = self.fields["exe_sig_message"].text()
         g.registry = {

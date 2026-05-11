@@ -30,23 +30,16 @@ param([Parameter(Mandatory=$true)][string]$Path)
 $ErrorActionPreference = "Stop"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $sig = Get-AuthenticodeSignature -LiteralPath $Path
+$cert = $sig.SignerCertificate
 [pscustomobject]@{
   Status = [string]$sig.Status
-  Subject = [string]$sig.SignerCertificate.Subject
-  Issuer = [string]$sig.SignerCertificate.Issuer
   StatusMessage = [string]$sig.StatusMessage
+  SubjectRaw = if ($cert) { [string]$cert.Subject } else { "" }
+  IssuerRaw = if ($cert) { [string]$cert.Issuer } else { "" }
+  SubjectSimple = if ($cert) { [string]$cert.GetNameInfo([System.Security.Cryptography.X509Certificates.X509NameType]::SimpleName, $false) } else { "" }
+  IssuerSimple = if ($cert) { [string]$cert.GetNameInfo([System.Security.Cryptography.X509Certificates.X509NameType]::SimpleName, $true) } else { "" }
 } | ConvertTo-Json -Compress
 """
-
-
-def _subject_name(raw: str) -> str:
-    if not raw:
-        return ""
-    parts = [p.strip() for p in raw.split(",")]
-    for p in parts:
-        if p.startswith("CN="):
-            return p[3:].strip()
-    return raw.strip()
 
 
 def _run_signature_script(path: str, logger=None) -> subprocess.CompletedProcess[str]:
@@ -78,6 +71,10 @@ def analyze_signature(path: str, logger=None) -> dict[str, str]:
         "status": STATUS_UNKNOWN,
         "subject": "",
         "issuer": "",
+        "subject_raw": "",
+        "issuer_raw": "",
+        "subject_simple": "",
+        "issuer_simple": "",
         "raw_status": "",
         "status_message": "",
         "error": "",
@@ -109,16 +106,16 @@ def analyze_signature(path: str, logger=None) -> dict[str, str]:
         result["raw_status"] = status
         result["status_message"] = status_message
         result["status"] = STATUS_MAP.get(status, STATUS_UNKNOWN)
-        if status == "Valid":
-            result["subject"] = _subject_name(data.get("Subject", ""))
-            result["issuer"] = _subject_name(data.get("Issuer", ""))
-        elif status in STATUS_MAP:
-            result["subject"] = _subject_name(data.get("Subject", ""))
-            result["issuer"] = _subject_name(data.get("Issuer", ""))
-        elif status:
+        result["subject_raw"] = data.get("SubjectRaw", "") or ""
+        result["issuer_raw"] = data.get("IssuerRaw", "") or ""
+        result["subject_simple"] = data.get("SubjectSimple", "") or ""
+        result["issuer_simple"] = data.get("IssuerSimple", "") or ""
+        result["subject"] = result["subject_simple"] or result["subject_raw"]
+        result["issuer"] = result["issuer_simple"] or result["issuer_raw"]
+        if status and status not in STATUS_MAP:
             result["error"] = status_message or status
         if logger:
-            logger.debug("Signature", f"Signature result: path={path}, status={result['status']}, raw_status={result['raw_status']}, subject={result['subject']}, issuer={result['issuer']}, status_message={result['status_message']}, error={result['error']}")
+            logger.debug("Signature", f"Signature result: path={path}, status={result['status']}, raw_status={result['raw_status']}, subject_simple={result['subject_simple']}, issuer_simple={result['issuer_simple']}, subject_raw={result['subject_raw']}, issuer_raw={result['issuer_raw']}, status_message={result['status_message']}, error={result['error']}")
     except Exception as exc:
         result["status"] = STATUS_FAILED
         result["error"] = repr(exc)
@@ -133,6 +130,10 @@ def apply_signature(info: ExeInfo, path: str, logger=None) -> ExeInfo:
     info.digital_signature_status = sig["status"]
     info.digital_signature_subject = sig["subject"]
     info.digital_signature_issuer = sig["issuer"]
+    info.digital_signature_subject_raw = sig["subject_raw"]
+    info.digital_signature_issuer_raw = sig["issuer_raw"]
+    info.digital_signature_subject_simple = sig["subject_simple"]
+    info.digital_signature_issuer_simple = sig["issuer_simple"]
     info.digital_signature_raw_status = sig["raw_status"]
     info.digital_signature_status_message = sig["status_message"]
     info.digital_signature_error = sig["error"]
