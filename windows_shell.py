@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import ctypes
 import os
-import subprocess
 
+from process_utils import popen_hidden, run_command_hidden
 from windows_paths import normalize_registry_path
 
 
@@ -57,11 +57,7 @@ def open_properties(path: str, logger=None) -> bool:
 
     cmd = ["explorer.exe", f"/select,{path}"]
     try:
-        if logger:
-            logger.debug("WindowsAPI", f"Fallback command args={cmd} shell=False")
-        proc = subprocess.Popen(cmd, shell=False)
-        if logger:
-            logger.debug("WindowsAPI", f"Fallback explorer started pid={proc.pid}")
+        popen_hidden(cmd, logger=logger, module="WindowsAPI")
         return False
     except Exception as exc:
         if logger:
@@ -90,11 +86,7 @@ def open_registry_path(path: str, logger=None) -> tuple[bool, str]:
         if logger:
             logger.debug("RegistryShell", f"LastKey={normalized}")
             logger.debug("RegistryShell", f"reg add args={args}")
-        cp = subprocess.run(args, shell=False, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10)
-        if logger:
-            logger.debug("RegistryShell", f"reg add returncode={cp.returncode}")
-            logger.debug("RegistryShell", f"reg add stdout={cp.stdout.strip()}")
-            logger.debug("RegistryShell", f"reg add stderr={cp.stderr.strip()}")
+        cp = run_command_hidden(args, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10, logger=logger, module="RegistryShell")
         if cp.returncode != 0:
             message = (cp.stderr or cp.stdout or "注册表路径格式无法识别或无法打开").strip()
             if logger:
@@ -106,9 +98,7 @@ def open_registry_path(path: str, logger=None) -> tuple[bool, str]:
         return False, str(exc)
 
     try:
-        subprocess.Popen(["regedit.exe"], shell=False)
-        if logger:
-            logger.debug("RegistryShell", "start regedit ok")
+        popen_hidden(["regedit.exe"], logger=logger, module="RegistryShell")
         return True, ""
     except Exception as exc:
         if logger:

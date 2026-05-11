@@ -65,6 +65,10 @@ def collect(appid: str = "", path: str = "", file: str = "", logger: DebugLogger
         path = file
     if path and os.path.isfile(path):
         data = parse_input_file(path, logger)
+        g.shortcut_type = data.get("shortcut_type", "")
+        g.shortcut_path = data.get("shortcut_path", path if data.get("shortcut_type") else "")
+        g.shortcut_icon_path = data.get("shortcut_icon_path", "")
+        g.shortcut_icon_index = data.get("shortcut_icon_index", "")
         appid = appid or data.get("steam_appid", "")
         if data.get("steam_appid") and logger:
             logger.info("Steam", f"Resolved AppID: {data.get('steam_appid')}")

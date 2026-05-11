@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 import tempfile
 from pathlib import Path
 
 from models import ExeInfo
+from process_utils import run_command_hidden
 
 STATUS_UNKNOWN = "\u672a\u77e5"
 STATUS_SIGNED = "\u5df2\u7b7e\u540d"
@@ -42,21 +42,14 @@ $cert = $sig.SignerCertificate
 """
 
 
-def _run_signature_script(path: str, logger=None) -> subprocess.CompletedProcess[str]:
+def _run_signature_script(path: str, logger=None):
     ps1 = None
     try:
         with tempfile.NamedTemporaryFile("w", suffix=".ps1", delete=False, encoding="utf-8") as f:
             f.write(PS_SCRIPT)
             ps1 = f.name
         cmd = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", ps1, "-Path", path]
-        if logger:
-            logger.debug("Signature", f"External command args={cmd} shell=False")
-        cp = subprocess.run(cmd, shell=False, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=15)
-        if logger:
-            logger.debug("Signature", f"External command returncode={cp.returncode}")
-            logger.debug("Signature", f"External command stdout={cp.stdout.strip()}")
-            logger.debug("Signature", f"External command stderr={cp.stderr.strip()}")
-        return cp
+        return run_command_hidden(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=15, logger=logger, module="Signature")
     finally:
         if ps1:
             try:

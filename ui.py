@@ -119,7 +119,15 @@ class MainWindow(QMainWindow):
         page = QWidget()
         grid = QGridLayout(page)
         groups = [
-            ("Steam", [("game_name", "Game Name"), ("steam_appid", "Steam AppID"), ("steam_url", "Steam URL")]),
+            ("Steam", [
+                ("game_name", "Game Name"),
+                ("steam_appid", "Steam AppID"),
+                ("steam_url", "Steam URL"),
+                ("shortcut_type", "Shortcut Type"),
+                ("shortcut_path", "Shortcut Path"),
+                ("shortcut_icon_path", "Shortcut Icon Path"),
+                ("shortcut_icon_index", "Shortcut Icon Index"),
+            ]),
             ("Paths", [("install_dir", "Game Install Dir"), ("main_exe_path", "Main EXE Path"), ("process_name", "Process Name")]),
             ("EXE Metadata", [
                 ("exe_company", "CompanyName"),
@@ -162,12 +170,18 @@ class MainWindow(QMainWindow):
             copy = QPushButton("Copy")
             copy.clicked.connect(lambda _, k=key: self.copy_field(k))
             row.addWidget(copy)
-            if key in {"install_dir", "main_exe_path", "reg_install", "reg_icon"}:
+            if key in {"install_dir", "main_exe_path", "reg_install", "reg_icon", "shortcut_path", "shortcut_icon_path"}:
                 open_btn = QPushButton("Open")
-                open_btn.clicked.connect(lambda _, k=key: self.open_path(self.fields[k].text()))
+                if key == "shortcut_icon_path":
+                    open_btn.clicked.connect(lambda _, k=key: self.open_optional_path(self.fields[k].text()))
+                else:
+                    open_btn.clicked.connect(lambda _, k=key: self.open_path(self.fields[k].text()))
                 row.addWidget(open_btn)
                 folder_btn = QPushButton("Folder")
-                folder_btn.clicked.connect(lambda _, k=key: self.open_containing_folder(self.fields[k].text()))
+                if key == "shortcut_icon_path":
+                    folder_btn.clicked.connect(lambda _, k=key: self.open_optional_containing_folder(self.fields[k].text()))
+                else:
+                    folder_btn.clicked.connect(lambda _, k=key: self.open_containing_folder(self.fields[k].text()))
                 row.addWidget(folder_btn)
             if key == "main_exe_path":
                 prop_btn = QPushButton("Properties")
@@ -187,8 +201,27 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(page)
         self.exe_table = QTableWidget(0, 18)
         self.exe_table.setHorizontalHeaderLabels(["Recommended", "Score", "Category", "File", "Path", "Size", "CompanyName", "ProductName", "FileDescription", "Signature Status", "Signature Subject", "Signature Issuer", "Subject Raw", "Issuer Raw", "Signature Raw Status", "Signature Message", "Reasons", "Actions"])
-        self.exe_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
-        self.exe_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Stretch)
+        self.exe_column_policy = {
+            0: (70, 55, 90),
+            1: (60, 45, 80),
+            2: (110, 80, 160),
+            3: (180, 120, 260),
+            4: (420, 260, 650),
+            5: (100, 80, 140),
+            6: (220, 120, 320),
+            7: (200, 120, 300),
+            8: (220, 120, 340),
+            9: (120, 100, 170),
+            10: (260, 140, 480),
+            11: (260, 140, 480),
+            12: (320, 180, 600),
+            13: (320, 180, 600),
+            14: (140, 100, 190),
+            15: (260, 140, 520),
+            16: (320, 180, 600),
+            17: (420, 320, 520),
+        }
+        self._apply_table_column_policy(self.exe_table, self.exe_column_policy)
         self.exe_table.itemDoubleClicked.connect(self.copy_table_item)
         self.exe_table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.exe_table.customContextMenuRequested.connect(self.show_exe_context_menu)
@@ -200,13 +233,42 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(page)
         self.registry_table = QTableWidget(0, 9)
         self.registry_table.setHorizontalHeaderLabels(["Recommended", "Score", "DisplayName", "InstallLocation", "Publisher", "DisplayIcon", "UninstallString", "RegistryKey", "Reasons"])
-        self.registry_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
-        self.registry_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
+        self.registry_column_policy = {
+            0: (70, 55, 90),
+            1: (60, 45, 80),
+            2: (220, 120, 340),
+            3: (360, 220, 600),
+            4: (220, 120, 340),
+            5: (360, 220, 600),
+            6: (420, 240, 700),
+            7: (420, 240, 700),
+            8: (300, 160, 500),
+        }
+        self._apply_table_column_policy(self.registry_table, self.registry_column_policy)
         self.registry_table.itemDoubleClicked.connect(self.copy_table_item)
         self.registry_table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.registry_table.customContextMenuRequested.connect(self.show_registry_context_menu)
         layout.addWidget(self.registry_table)
         return page
+
+    def _apply_table_column_policy(self, table: QTableWidget, policy: dict[int, tuple[int, int, int]]):
+        """
+        policy: col -> (default_width, min_width, max_width)
+        """
+        header = table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.Interactive)
+        header.setStretchLastSection(False)
+        for col, (default_width, min_width, max_width) in policy.items():
+            header.setMinimumSectionSize(min(header.minimumSectionSize(), min_width))
+            table.setColumnWidth(col, default_width)
+
+    def _clamp_table_columns(self, table: QTableWidget, policy: dict[int, tuple[int, int, int]]):
+        table.resizeColumnsToContents()
+        for col, (default_width, min_width, max_width) in policy.items():
+            current = table.columnWidth(col)
+            if current <= 0:
+                current = default_width
+            table.setColumnWidth(col, max(min_width, min(current, max_width)))
 
     def _build_path_tab(self) -> QWidget:
         page = QWidget()
@@ -323,12 +385,30 @@ class MainWindow(QMainWindow):
             self.controller.logger.exception("Shell", f"Open failed: {path}", exc)
             QMessageBox.warning(self, "Open failed", str(exc))
 
+    def open_optional_path(self, path: str):
+        path = self._clean_display_path(path)
+        exists = os.path.exists(path) if path else False
+        self.controller.logger.debug("GUI", f"Button=Open optional path={path} empty={not bool(path)} exists={exists}")
+        if not path or not exists:
+            self.statusBar().showMessage("Path does not exist; kept for reference only", 2500)
+            return
+        self.open_path(path)
+
     def open_containing_folder(self, path: str):
         path = self._clean_display_path(path)
         self.controller.logger.debug("GUI", f"Button=Folder path={path} empty={not bool(path)} exists={os.path.exists(path) if path else False}")
         if os.path.isfile(path):
             path = os.path.dirname(path)
         self.open_path(path)
+
+    def open_optional_containing_folder(self, path: str):
+        path = self._clean_display_path(path)
+        exists = os.path.exists(path) if path else False
+        self.controller.logger.debug("GUI", f"Button=Folder optional path={path} empty={not bool(path)} exists={exists}")
+        if not path or not exists:
+            self.statusBar().showMessage("Path does not exist; kept for reference only", 2500)
+            return
+        self.open_containing_folder(path)
 
     def open_properties(self, path: str):
         path = self._clean_display_path(path)
@@ -358,6 +438,10 @@ class MainWindow(QMainWindow):
             "game_name": g.game_name,
             "steam_appid": g.steam_appid,
             "steam_url": g.steam_url,
+            "shortcut_type": g.shortcut_type,
+            "shortcut_path": g.shortcut_path,
+            "shortcut_icon_path": g.shortcut_icon_path,
+            "shortcut_icon_index": g.shortcut_icon_index,
             "install_dir": g.install_dir,
             "main_exe_path": g.main_exe_path,
             "process_name": g.process_name,
@@ -415,6 +499,7 @@ class MainWindow(QMainWindow):
             ]
             for col, value in enumerate(values):
                 item = QTableWidgetItem(value or "")
+                item.setToolTip(value or "")
                 item.setFlags(item.flags() & ~Qt.ItemIsEditable)
                 self.exe_table.setItem(row, col, item)
             actions = QWidget()
@@ -433,6 +518,7 @@ class MainWindow(QMainWindow):
                 b.clicked.connect(lambda _, cb=callback: cb())
                 h.addWidget(b)
             self.exe_table.setCellWidget(row, 17, actions)
+        self._clamp_table_columns(self.exe_table, self.exe_column_policy)
 
     def copy_exe_path(self, path: str):
         self.controller.logger.debug("GUI", f"Button=Copy Path path={path} empty={not bool(path)} exists={os.path.exists(path) if path else False}")
@@ -494,8 +580,10 @@ class MainWindow(QMainWindow):
             ]
             for col, value in enumerate(values):
                 item = QTableWidgetItem(str(value or ""))
+                item.setToolTip(str(value or ""))
                 item.setFlags(item.flags() & ~Qt.ItemIsEditable)
                 self.registry_table.setItem(row, col, item)
+        self._clamp_table_columns(self.registry_table, self.registry_column_policy)
 
     def _fmt_size(self, size: int) -> str:
         if not size:
@@ -635,6 +723,8 @@ class MainWindow(QMainWindow):
 
     def current_game(self) -> GameInfo:
         g = self.game
+        for k in ["shortcut_type", "shortcut_path", "shortcut_icon_path", "shortcut_icon_index"]:
+            setattr(g, k, self.fields[k].text())
         for k in ["game_name", "steam_appid", "steam_url", "install_dir", "main_exe_path", "process_name"]:
             setattr(g, k, self.fields[k].text())
         g.exe_info.company_name = self.fields["exe_company"].text()
