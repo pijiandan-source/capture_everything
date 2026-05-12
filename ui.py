@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import ctypes
 from datetime import datetime
 
 from PySide6.QtCore import Qt, Signal
@@ -21,6 +22,7 @@ from PySide6.QtWidgets import (
     QMenu,
     QPlainTextEdit,
     QPushButton,
+    QScrollArea,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
@@ -28,11 +30,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app_settings import DEFAULT_SETTINGS, load_settings, reset_settings, save_settings, settings_path
 from copy_formatter import as_json, basic_text, exe_text, full_text, reg_text
 from models import ExeCandidate, GameInfo, RegistryCandidate
 from path_wildcard_converter import PathConvertContext, convert_multiline
 from windows_paths import clean_display_path, normalize_registry_path
-from windows_shell import open_properties as shell_open_properties, open_registry_path as shell_open_registry_path
+from windows_shell import open_properties as shell_open_properties, open_registry_path as shell_open_registry_path, open_regedit_as_admin
 
 
 class DropLabel(QLabel):
@@ -62,6 +65,9 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("SteamGameInfoCollector")
         self.resize(1280, 860)
         self.fields: dict[str, QLineEdit] = {}
+        self.basic_groups: dict[str, QGroupBox] = {}
+        self.settings = load_settings(controller.logger)
+        self.settings_checks: dict[str, QCheckBox] = {}
         self.game = GameInfo()
 
         w = QWidget()
@@ -76,7 +82,10 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self._build_registry_tab(), "Registry Candidates")
         self.tabs.addTab(self._build_path_tab(), "Path Wildcards")
         self.tabs.addTab(self._build_log_tab(), "Log")
+        self.tabs.addTab(self._build_settings_tab(), "Settings")
         root.addLayout(self._build_copy_bar())
+        self.apply_basic_visibility()
+        self._log_admin_status()
 
     def _build_input_area(self) -> QWidget:
         box = QGroupBox("Input")
@@ -99,6 +108,13 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.registry_keyword, 1, 1)
         layout.addWidget(reg_btn, 1, 2)
 
+        self.path_input_line = QLineEdit()
+        self.path_input_line.setPlaceholderText("Paste shortcut / exe / folder path")
+        analyze_path_btn = QPushButton("Analyze Path")
+        analyze_path_btn.clicked.connect(lambda: self.controller.analyze_path(self.path_input_line.text().strip().strip('"')))
+        layout.addWidget(self.path_input_line, 2, 1)
+        layout.addWidget(analyze_path_btn, 2, 2)
+
         file_btn = QPushButton("Choose File")
         file_btn.clicked.connect(self.choose_file)
         dir_btn = QPushButton("Choose Folder")
@@ -113,29 +129,42 @@ class MainWindow(QMainWindow):
         layout.addWidget(clear_btn, 0, 4)
         layout.addWidget(self.debug_check, 1, 4)
         layout.addWidget(self.log_all_registry_check, 0, 5)
+        layout.addWidget(QLabel("If drag-and-drop fails under admin, use Choose File / Choose Folder / Paste Path."), 2, 3, 1, 3)
         return box
 
     def _build_basic_tab(self) -> QWidget:
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         page = QWidget()
-        grid = QGridLayout(page)
+        layout = QVBoxLayout(page)
         groups = [
-            ("Steam", [
+            ("steam", "Steam", [
                 ("game_name", "Game Name"),
                 ("steam_appid", "Steam AppID"),
                 ("steam_url", "Steam URL"),
+            ]),
+            ("shortcut", "Shortcut", [
+                ("shortcut_name", "Shortcut Name"),
                 ("shortcut_type", "Shortcut Type"),
                 ("shortcut_path", "Shortcut Path"),
                 ("shortcut_icon_path", "Shortcut Icon Path"),
                 ("shortcut_icon_index", "Shortcut Icon Index"),
             ]),
-            ("Paths", [("install_dir", "Game Install Dir"), ("main_exe_path", "Main EXE Path"), ("process_name", "Process Name")]),
-            ("EXE Metadata", [
+            ("game_paths", "Game Paths", [("install_dir", "Game Install Dir")]),
+            ("main_exe", "Main EXE", [("main_exe_path", "Main EXE Path"), ("process_name", "Process Name")]),
+            ("exe_metadata", "EXE Metadata", [
                 ("exe_company", "CompanyName"),
                 ("exe_product", "ProductName"),
                 ("exe_desc", "FileDescription"),
                 ("exe_file_version", "FileVersion"),
                 ("exe_product_version", "ProductVersion"),
                 ("exe_original", "OriginalFilename"),
+                ("exe_internal", "InternalName"),
+                ("exe_copyright", "LegalCopyright"),
+            ]),
+            ("signature", "Digital Signature", [
                 ("exe_sig_status", "Digital Signature Status"),
                 ("exe_sig_subject", "Digital Signature Subject"),
                 ("exe_sig_issuer", "Digital Signature Issuer"),
@@ -146,7 +175,7 @@ class MainWindow(QMainWindow):
                 ("exe_sig_raw_status", "Digital Signature Raw Status"),
                 ("exe_sig_message", "Digital Signature Status Message"),
             ]),
-            ("Registry", [
+            ("registry", "Registry", [
                 ("reg_name", "DisplayName"),
                 ("reg_install", "InstallLocation"),
                 ("reg_pub", "Publisher"),
@@ -155,9 +184,13 @@ class MainWindow(QMainWindow):
                 ("reg_key", "Registry Key"),
             ]),
         ]
-        for i, (title, fields) in enumerate(groups):
-            grid.addWidget(self._field_group(title, fields), i // 2, i % 2)
-        return page
+        for key, title, fields in groups:
+            group = self._field_group(title, fields)
+            self.basic_groups[key] = group
+            layout.addWidget(group)
+        layout.addStretch(1)
+        scroll.setWidget(page)
+        return scroll
 
     def _field_group(self, title: str, items: list[tuple[str, str]]) -> QGroupBox:
         box = QGroupBox(title)
@@ -310,6 +343,82 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.log)
         return page
 
+    def _build_settings_tab(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        info = QLabel("Basic visibility settings only affect what is shown in the Basic tab. Copy Full and JSON still include all collected data.")
+        info.setWordWrap(True)
+        layout.addWidget(info)
+        box = QGroupBox("Basic Sections")
+        form = QFormLayout(box)
+        labels = {
+            "steam": "Show Steam info",
+            "shortcut": "Show shortcut info",
+            "game_paths": "Show game path info",
+            "main_exe": "Show main EXE info",
+            "exe_metadata": "Show EXE metadata",
+            "signature": "Show digital signature info",
+            "registry": "Show registry info",
+        }
+        visibility = self.settings.setdefault("basic_visibility", DEFAULT_SETTINGS["basic_visibility"].copy())
+        for key, label in labels.items():
+            cb = QCheckBox(label)
+            cb.setChecked(bool(visibility.get(key, True)))
+            cb.toggled.connect(lambda checked, k=key: self.on_basic_visibility_changed(k, checked))
+            self.settings_checks[key] = cb
+            form.addRow(cb)
+        layout.addWidget(box)
+        btns = QHBoxLayout()
+        reset_btn = QPushButton("Restore Defaults")
+        reset_btn.clicked.connect(self.restore_default_settings)
+        open_dir_btn = QPushButton("Open Settings Folder")
+        open_dir_btn.clicked.connect(self.open_settings_folder)
+        btns.addWidget(reset_btn)
+        btns.addWidget(open_dir_btn)
+        btns.addStretch(1)
+        layout.addLayout(btns)
+        layout.addStretch(1)
+        return page
+
+    def on_basic_visibility_changed(self, key: str, checked: bool):
+        self.settings.setdefault("basic_visibility", {})[key] = checked
+        save_settings(self.settings, self.controller.logger)
+        self.apply_basic_visibility()
+
+    def apply_basic_visibility(self):
+        visibility = self.settings.get("basic_visibility", {})
+        for key, group in self.basic_groups.items():
+            group.setVisible(bool(visibility.get(key, True)))
+
+    def restore_default_settings(self):
+        self.settings = reset_settings(self.controller.logger)
+        for key, cb in self.settings_checks.items():
+            cb.blockSignals(True)
+            cb.setChecked(bool(self.settings["basic_visibility"].get(key, True)))
+            cb.blockSignals(False)
+        self.apply_basic_visibility()
+        self.statusBar().showMessage("Settings restored", 1500)
+
+    def open_settings_folder(self):
+        settings_path().parent.mkdir(parents=True, exist_ok=True)
+        self.open_path(str(settings_path().parent))
+
+    def _is_admin(self) -> bool:
+        if os.name != "nt":
+            return False
+        try:
+            return bool(ctypes.windll.shell32.IsUserAnAdmin())
+        except Exception:
+            return False
+
+    def _log_admin_status(self):
+        is_admin = self._is_admin()
+        self.controller.logger.info("Privilege", f"Process admin={is_admin}")
+        if is_admin:
+            message = "This tool is running as administrator. Drag-and-drop from normal Explorer may not work; use Choose File / Choose Folder / Paste Path."
+            self.controller.logger.warning("Privilege", message)
+            self.statusBar().showMessage(message, 8000)
+
     def _build_copy_bar(self) -> QHBoxLayout:
         h = QHBoxLayout()
         for text, fn in [
@@ -421,13 +530,36 @@ class MainWindow(QMainWindow):
 
     def open_registry(self, path: str):
         if not path.strip():
-            QMessageBox.information(self, "Info", "当前没有可打开的注册表路径")
+            QMessageBox.information(self, "Info", "No registry path to open.")
             return
-        ok, message = shell_open_registry_path(path, self.controller.logger)
-        if ok:
+        result = shell_open_registry_path(path, self.controller.logger)
+        if result.ok:
             self.statusBar().showMessage("Registry opened", 2000)
+        elif result.needs_elevation:
+            self.handle_registry_elevation_required(result.normalized_path)
         else:
-            QMessageBox.warning(self, "Open registry failed", message or "注册表路径格式无法识别或无法打开")
+            QMessageBox.warning(self, "Open registry failed", result.message or "Failed to open registry path.")
+
+    def handle_registry_elevation_required(self, registry_path: str):
+        self.controller.logger.info("RegistryShell", "Prompt user to run regedit as admin")
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Warning)
+        box.setWindowTitle("Administrator permission required")
+        box.setText("Opening regedit requires administrator privileges.")
+        box.setInformativeText("You can run regedit as administrator, copy the registry path, or cancel. Do not run the whole tool as administrator unless necessary; admin mode may block drag-and-drop from normal Explorer.")
+        copy_btn = box.addButton("Copy Registry Path", QMessageBox.ActionRole)
+        admin_btn = box.addButton("Run regedit as Admin", QMessageBox.AcceptRole)
+        box.addButton(QMessageBox.Cancel)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked == copy_btn:
+            self.copy_text(registry_path, "Registry path copied", allow_empty=True)
+        elif clicked == admin_btn:
+            ok, message = open_regedit_as_admin(self.controller.logger)
+            if ok:
+                self.statusBar().showMessage("UAC prompt opened for regedit", 2500)
+            else:
+                QMessageBox.warning(self, "Open regedit as admin failed", message or "Failed to start elevated regedit.")
 
     def _clean_display_path(self, path: str) -> str:
         return clean_display_path(path)
@@ -438,6 +570,7 @@ class MainWindow(QMainWindow):
             "game_name": g.game_name,
             "steam_appid": g.steam_appid,
             "steam_url": g.steam_url,
+            "shortcut_name": g.shortcut_name,
             "shortcut_type": g.shortcut_type,
             "shortcut_path": g.shortcut_path,
             "shortcut_icon_path": g.shortcut_icon_path,
@@ -451,6 +584,8 @@ class MainWindow(QMainWindow):
             "exe_file_version": g.exe_info.file_version,
             "exe_product_version": g.exe_info.product_version,
             "exe_original": g.exe_info.original_filename,
+            "exe_internal": g.exe_info.internal_name,
+            "exe_copyright": g.exe_info.legal_copyright,
             "exe_sig_status": g.exe_info.digital_signature_status,
             "exe_sig_subject": g.exe_info.digital_signature_subject,
             "exe_sig_issuer": g.exe_info.digital_signature_issuer,
@@ -723,7 +858,7 @@ class MainWindow(QMainWindow):
 
     def current_game(self) -> GameInfo:
         g = self.game
-        for k in ["shortcut_type", "shortcut_path", "shortcut_icon_path", "shortcut_icon_index"]:
+        for k in ["shortcut_name", "shortcut_type", "shortcut_path", "shortcut_icon_path", "shortcut_icon_index"]:
             setattr(g, k, self.fields[k].text())
         for k in ["game_name", "steam_appid", "steam_url", "install_dir", "main_exe_path", "process_name"]:
             setattr(g, k, self.fields[k].text())
@@ -733,6 +868,8 @@ class MainWindow(QMainWindow):
         g.exe_info.file_version = self.fields["exe_file_version"].text()
         g.exe_info.product_version = self.fields["exe_product_version"].text()
         g.exe_info.original_filename = self.fields["exe_original"].text()
+        g.exe_info.internal_name = self.fields["exe_internal"].text()
+        g.exe_info.legal_copyright = self.fields["exe_copyright"].text()
         g.exe_info.digital_signature_status = self.fields["exe_sig_status"].text()
         g.exe_info.digital_signature_subject = self.fields["exe_sig_subject"].text()
         g.exe_info.digital_signature_issuer = self.fields["exe_sig_issuer"].text()

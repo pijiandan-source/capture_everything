@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ctypes
 import os
+from dataclasses import dataclass
 
 from process_utils import popen_hidden, run_command_hidden
 from windows_paths import normalize_registry_path
@@ -9,6 +10,14 @@ from windows_paths import normalize_registry_path
 
 SW_SHOWNORMAL = 1
 REGEDIT_LAST_KEY = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Applets\Regedit"
+
+
+@dataclass
+class RegistryOpenResult:
+    ok: bool
+    message: str = ""
+    normalized_path: str = ""
+    needs_elevation: bool = False
 
 
 def open_properties(path: str, logger=None) -> bool:
@@ -65,7 +74,7 @@ def open_properties(path: str, logger=None) -> bool:
         return False
 
 
-def open_registry_path(path: str, logger=None) -> tuple[bool, str]:
+def open_registry_path(path: str, logger=None) -> RegistryOpenResult:
     if logger:
         logger.debug("RegistryShell", "Open registry requested")
         logger.debug("RegistryShell", f"raw_path={path}")
@@ -73,7 +82,7 @@ def open_registry_path(path: str, logger=None) -> tuple[bool, str]:
     if logger:
         logger.debug("RegistryShell", f"normalized_path={normalized}")
     if not normalized:
-        return False, "当前没有可打开的注册表路径"
+        return RegistryOpenResult(False, "No registry path to open.", normalized)
 
     args = [
         "reg", "add",
@@ -88,19 +97,44 @@ def open_registry_path(path: str, logger=None) -> tuple[bool, str]:
             logger.debug("RegistryShell", f"reg add args={args}")
         cp = run_command_hidden(args, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10, logger=logger, module="RegistryShell")
         if cp.returncode != 0:
-            message = (cp.stderr or cp.stdout or "注册表路径格式无法识别或无法打开").strip()
+            message = (cp.stderr or cp.stdout or "Failed to write Regedit LastKey.").strip()
             if logger:
                 logger.error("RegistryShell", f"reg add failed: {message}")
-            return False, message
+            return RegistryOpenResult(False, message, normalized)
     except Exception as exc:
         if logger:
             logger.exception("RegistryShell", "reg add exception", exc)
-        return False, str(exc)
+        return RegistryOpenResult(False, str(exc), normalized)
 
     try:
+        if logger:
+            logger.debug("RegistryShell", "start regedit args=['regedit.exe'] shell=False hidden=True")
         popen_hidden(["regedit.exe"], logger=logger, module="RegistryShell")
-        return True, ""
+        return RegistryOpenResult(True, "", normalized)
     except Exception as exc:
+        winerror = getattr(exc, "winerror", None)
         if logger:
             logger.exception("RegistryShell", "start regedit exception", exc)
+            logger.error("RegistryShell", f"start regedit failed: winerror={winerror}, need elevation={winerror == 740}")
+        if winerror == 740:
+            return RegistryOpenResult(False, "Opening regedit requires administrator privileges.", normalized, True)
+        return RegistryOpenResult(False, str(exc), normalized)
+
+
+def open_regedit_as_admin(logger=None) -> tuple[bool, str]:
+    try:
+        ctypes.set_last_error(0)
+        if logger:
+            logger.info("RegistryShell", "Prompt user to run regedit as admin")
+            logger.debug("RegistryShell", "ShellExecuteW verb=runas file=regedit.exe")
+        ret = ctypes.windll.shell32.ShellExecuteW(None, "runas", "regedit.exe", None, None, SW_SHOWNORMAL)
+        last_error = ctypes.get_last_error()
+        if logger:
+            logger.debug("RegistryShell", f"ShellExecuteW ret={ret} GetLastError={last_error}")
+        if ret > 32:
+            return True, ""
+        return False, str(ctypes.WinError(last_error))
+    except Exception as exc:
+        if logger:
+            logger.exception("RegistryShell", "runas regedit exception", exc)
         return False, str(exc)

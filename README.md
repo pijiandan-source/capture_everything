@@ -39,6 +39,9 @@ python main.py --file "C:\\Users\\xxx\\Desktop\\Example Game.url"
 ## GUI 使用
 
 - 拖入 `.url/.lnk/.exe/目录` 自动分析。
+- 不建议以管理员身份运行本工具。管理员运行可能导致无法从普通 Explorer 拖拽文件到窗口。
+- 如果拖拽不可用，请使用“选择文件”“选择文件夹”“手动 AppID”或粘贴路径分析。
+- 如需打开 HKLM 注册表项，工具会在用户点击“以管理员打开 regedit”时单独请求 UAC。
 - 主结果区字段均可编辑并单独复制。
 - 支持复制基础信息、exe 信息、注册表信息、完整信息、JSON。
 - exe 候选和注册表候选表格支持双击复制单元格、右键复制更多内容。
@@ -69,6 +72,7 @@ pyinstaller --noconsole --windowed --onefile --name SteamGameInfoCollector main.
 - 工具不会自启动或常驻后台。
 - 工具只扫描用户拖入的目录或当前 AppID 对应的游戏目录。
 - `reg add LastKey` 只在用户点击“打开注册表”时执行。
+- 主程序默认普通权限运行；需要管理员权限的动作会单独请求 UAC，不要求整个 GUI 以管理员权限启动。
 - PowerShell 签名检测只在分析当前游戏目录 exe 时执行，不会启动时批量运行。
 
 ## 常见问题

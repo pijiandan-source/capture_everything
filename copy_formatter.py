@@ -11,6 +11,7 @@ def basic_text(g: GameInfo) -> str:
         f"Game Name: {g.game_name}\n"
         f"Steam AppID: {g.steam_appid}\n"
         f"Steam URL: {g.steam_url}\n"
+        f"Shortcut Name: {g.shortcut_name}\n"
         f"Shortcut Type: {g.shortcut_type}\n"
         f"Shortcut Path: {g.shortcut_path}\n"
         f"Shortcut Icon Path: {g.shortcut_icon_path}\n"

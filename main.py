@@ -65,6 +65,7 @@ def collect(appid: str = "", path: str = "", file: str = "", logger: DebugLogger
         path = file
     if path and os.path.isfile(path):
         data = parse_input_file(path, logger)
+        g.shortcut_name = data.get("shortcut_name", "")
         g.shortcut_type = data.get("shortcut_type", "")
         g.shortcut_path = data.get("shortcut_path", path if data.get("shortcut_type") else "")
         g.shortcut_icon_path = data.get("shortcut_icon_path", "")

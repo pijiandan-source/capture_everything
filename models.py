@@ -48,6 +48,7 @@ class RegistryCandidate:
 @dataclass
 class GameInfo:
     platform: str = "steam"
+    shortcut_name: str = ""
     shortcut_type: str = ""
     shortcut_path: str = ""
     shortcut_icon_path: str = ""
@@ -73,6 +74,7 @@ class GameInfo:
     def to_dict(self) -> dict[str, Any]:
         result = asdict(self)
         result["shortcut"] = {
+            "name": self.shortcut_name,
             "type": self.shortcut_type,
             "path": self.shortcut_path,
             "icon_path": self.shortcut_icon_path,

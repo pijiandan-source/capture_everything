@@ -12,6 +12,8 @@ class DebugLogger:
 
     def add_handler(self, handler):
         self._handlers.append(handler)
+        for line in self.lines:
+            handler(line)
 
     def set_debug(self, enabled: bool) -> None:
         self.debug_enabled = enabled

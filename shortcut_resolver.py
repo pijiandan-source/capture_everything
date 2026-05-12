@@ -46,6 +46,7 @@ def parse_url(path: str, logger=None) -> dict:
         except Exception as exc:
             logger.exception("Shortcut", f"Failed to read .url raw content: {path}", exc)
     return {
+        "shortcut_name": Path(path).name,
         "shortcut_type": ".url",
         "shortcut_path": path,
         "steam_url": url,
@@ -77,6 +78,7 @@ def parse_lnk(path: str, logger=None) -> dict:
         logger.debug("Shortcut", f"shortcut_icon_index={icon_index}")
         logger.debug("Shortcut", f"icon_exists={os.path.exists(icon_path) if icon_path else False}")
     return {
+        "shortcut_name": Path(path).name,
         "shortcut_type": ".lnk",
         "shortcut_path": path,
         "target": target,
