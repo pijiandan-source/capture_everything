@@ -66,8 +66,12 @@ class MainWindow(QMainWindow):
         self.resize(1280, 860)
         self.fields: dict[str, QLineEdit] = {}
         self.basic_groups: dict[str, QGroupBox] = {}
+        self.basic_field_widgets: dict[str, list[QWidget]] = {}
+        self.basic_field_groups: dict[str, str] = {}
+        self.basic_group_defs = self._make_basic_group_defs()
         self.settings = load_settings(controller.logger)
         self.settings_checks: dict[str, QCheckBox] = {}
+        self.field_settings_checks: dict[str, QCheckBox] = {}
         self.game = GameInfo()
 
         w = QWidget()
@@ -86,6 +90,53 @@ class MainWindow(QMainWindow):
         root.addLayout(self._build_copy_bar())
         self.apply_basic_visibility()
         self._log_admin_status()
+
+    def _make_basic_group_defs(self) -> list[tuple[str, str, list[tuple[str, str]]]]:
+        return [
+            ("steam", "Steam", [
+                ("game_name", "Game Name"),
+                ("steam_appid", "Steam AppID"),
+                ("steam_url", "Steam URL"),
+            ]),
+            ("shortcut", "Shortcut", [
+                ("shortcut_name", "Shortcut Name"),
+                ("shortcut_type", "Shortcut Type"),
+                ("shortcut_path", "Shortcut Path"),
+                ("shortcut_icon_path", "Shortcut Icon Path"),
+                ("shortcut_icon_index", "Shortcut Icon Index"),
+            ]),
+            ("game_paths", "Game Paths", [("install_dir", "Game Install Dir")]),
+            ("main_exe", "Main EXE", [("main_exe_path", "Main EXE Path"), ("process_name", "Process Name")]),
+            ("exe_metadata", "EXE Metadata", [
+                ("exe_company", "CompanyName"),
+                ("exe_product", "ProductName"),
+                ("exe_desc", "FileDescription"),
+                ("exe_file_version", "FileVersion"),
+                ("exe_product_version", "ProductVersion"),
+                ("exe_original", "OriginalFilename"),
+                ("exe_internal", "InternalName"),
+                ("exe_copyright", "LegalCopyright"),
+            ]),
+            ("signature", "Digital Signature", [
+                ("exe_sig_status", "Digital Signature Status"),
+                ("exe_sig_subject", "Digital Signature Subject"),
+                ("exe_sig_issuer", "Digital Signature Issuer"),
+                ("exe_sig_subject_simple", "Digital Signature Subject Simple"),
+                ("exe_sig_issuer_simple", "Digital Signature Issuer Simple"),
+                ("exe_sig_subject_raw", "Digital Signature Subject Raw"),
+                ("exe_sig_issuer_raw", "Digital Signature Issuer Raw"),
+                ("exe_sig_raw_status", "Digital Signature Raw Status"),
+                ("exe_sig_message", "Digital Signature Status Message"),
+            ]),
+            ("registry", "Registry", [
+                ("reg_name", "DisplayName"),
+                ("reg_install", "InstallLocation"),
+                ("reg_pub", "Publisher"),
+                ("reg_icon", "DisplayIcon"),
+                ("reg_uninstall", "UninstallString"),
+                ("reg_key", "Registry Key"),
+            ]),
+        ]
 
     def _build_input_area(self) -> QWidget:
         box = QGroupBox("Input")
@@ -138,63 +189,21 @@ class MainWindow(QMainWindow):
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         page = QWidget()
-        layout = QVBoxLayout(page)
-        groups = [
-            ("steam", "Steam", [
-                ("game_name", "Game Name"),
-                ("steam_appid", "Steam AppID"),
-                ("steam_url", "Steam URL"),
-            ]),
-            ("shortcut", "Shortcut", [
-                ("shortcut_name", "Shortcut Name"),
-                ("shortcut_type", "Shortcut Type"),
-                ("shortcut_path", "Shortcut Path"),
-                ("shortcut_icon_path", "Shortcut Icon Path"),
-                ("shortcut_icon_index", "Shortcut Icon Index"),
-            ]),
-            ("game_paths", "Game Paths", [("install_dir", "Game Install Dir")]),
-            ("main_exe", "Main EXE", [("main_exe_path", "Main EXE Path"), ("process_name", "Process Name")]),
-            ("exe_metadata", "EXE Metadata", [
-                ("exe_company", "CompanyName"),
-                ("exe_product", "ProductName"),
-                ("exe_desc", "FileDescription"),
-                ("exe_file_version", "FileVersion"),
-                ("exe_product_version", "ProductVersion"),
-                ("exe_original", "OriginalFilename"),
-                ("exe_internal", "InternalName"),
-                ("exe_copyright", "LegalCopyright"),
-            ]),
-            ("signature", "Digital Signature", [
-                ("exe_sig_status", "Digital Signature Status"),
-                ("exe_sig_subject", "Digital Signature Subject"),
-                ("exe_sig_issuer", "Digital Signature Issuer"),
-                ("exe_sig_subject_simple", "Digital Signature Subject Simple"),
-                ("exe_sig_issuer_simple", "Digital Signature Issuer Simple"),
-                ("exe_sig_subject_raw", "Digital Signature Subject Raw"),
-                ("exe_sig_issuer_raw", "Digital Signature Issuer Raw"),
-                ("exe_sig_raw_status", "Digital Signature Raw Status"),
-                ("exe_sig_message", "Digital Signature Status Message"),
-            ]),
-            ("registry", "Registry", [
-                ("reg_name", "DisplayName"),
-                ("reg_install", "InstallLocation"),
-                ("reg_pub", "Publisher"),
-                ("reg_icon", "DisplayIcon"),
-                ("reg_uninstall", "UninstallString"),
-                ("reg_key", "Registry Key"),
-            ]),
-        ]
-        for key, title, fields in groups:
-            group = self._field_group(title, fields)
+        grid = QGridLayout(page)
+        grid.setColumnStretch(0, 1)
+        grid.setColumnStretch(1, 1)
+        for index, (key, title, fields) in enumerate(self.basic_group_defs):
+            group = self._field_group(key, title, fields)
             self.basic_groups[key] = group
-            layout.addWidget(group)
-        layout.addStretch(1)
+            grid.addWidget(group, index // 2, index % 2)
         scroll.setWidget(page)
         return scroll
 
-    def _field_group(self, title: str, items: list[tuple[str, str]]) -> QGroupBox:
+    def _field_group(self, group_key: str, title: str, items: list[tuple[str, str]]) -> QGroupBox:
         box = QGroupBox(title)
-        form = QFormLayout(box)
+        outer = QVBoxLayout(box)
+        form_container = QWidget()
+        form = QFormLayout(form_container)
         for key, label in items:
             le = QLineEdit()
             self.fields[key] = le
@@ -226,7 +235,20 @@ class MainWindow(QMainWindow):
                 row.addWidget(reg_btn)
             wrap = QWidget()
             wrap.setLayout(row)
-            form.addRow(label, wrap)
+            label_widget = QLabel(label)
+            form.addRow(label_widget, wrap)
+            self.basic_field_widgets[key] = [label_widget, wrap]
+            self.basic_field_groups[key] = group_key
+        if group_key in {"shortcut", "exe_metadata", "signature", "registry"}:
+            inner_scroll = QScrollArea()
+            inner_scroll.setWidgetResizable(True)
+            inner_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+            inner_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+            inner_scroll.setWidget(form_container)
+            inner_scroll.setMaximumHeight(320 if group_key == "signature" else 280)
+            outer.addWidget(inner_scroll)
+        else:
+            outer.addWidget(form_container)
         return box
 
     def _build_exe_tab(self) -> QWidget:
@@ -344,6 +366,10 @@ class MainWindow(QMainWindow):
         return page
 
     def _build_settings_tab(self) -> QWidget:
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         page = QWidget()
         layout = QVBoxLayout(page)
         info = QLabel("Basic visibility settings only affect what is shown in the Basic tab. Copy Full and JSON still include all collected data.")
@@ -351,23 +377,30 @@ class MainWindow(QMainWindow):
         layout.addWidget(info)
         box = QGroupBox("Basic Sections")
         form = QFormLayout(box)
-        labels = {
-            "steam": "Show Steam info",
-            "shortcut": "Show shortcut info",
-            "game_paths": "Show game path info",
-            "main_exe": "Show main EXE info",
-            "exe_metadata": "Show EXE metadata",
-            "signature": "Show digital signature info",
-            "registry": "Show registry info",
-        }
         visibility = self.settings.setdefault("basic_visibility", DEFAULT_SETTINGS["basic_visibility"].copy())
-        for key, label in labels.items():
-            cb = QCheckBox(label)
+        for key, title, _fields in self.basic_group_defs:
+            cb = QCheckBox(f"Show {title}")
             cb.setChecked(bool(visibility.get(key, True)))
             cb.toggled.connect(lambda checked, k=key: self.on_basic_visibility_changed(k, checked))
             self.settings_checks[key] = cb
             form.addRow(cb)
         layout.addWidget(box)
+
+        field_visibility = self.settings.setdefault("basic_field_visibility", DEFAULT_SETTINGS["basic_field_visibility"].copy())
+        fields_box = QGroupBox("Basic Fields")
+        fields_layout = QVBoxLayout(fields_box)
+        for group_key, title, fields in self.basic_group_defs:
+            group_box = QGroupBox(title)
+            group_form = QFormLayout(group_box)
+            for field_key, label in fields:
+                cb = QCheckBox(label)
+                cb.setChecked(bool(field_visibility.get(field_key, True)))
+                cb.toggled.connect(lambda checked, k=field_key: self.on_basic_field_visibility_changed(k, checked))
+                self.field_settings_checks[field_key] = cb
+                group_form.addRow(cb)
+            fields_layout.addWidget(group_box)
+        layout.addWidget(fields_box)
+
         btns = QHBoxLayout()
         reset_btn = QPushButton("Restore Defaults")
         reset_btn.clicked.connect(self.restore_default_settings)
@@ -378,23 +411,39 @@ class MainWindow(QMainWindow):
         btns.addStretch(1)
         layout.addLayout(btns)
         layout.addStretch(1)
-        return page
+        scroll.setWidget(page)
+        return scroll
 
     def on_basic_visibility_changed(self, key: str, checked: bool):
         self.settings.setdefault("basic_visibility", {})[key] = checked
         save_settings(self.settings, self.controller.logger)
         self.apply_basic_visibility()
 
+    def on_basic_field_visibility_changed(self, field_key: str, checked: bool):
+        self.settings.setdefault("basic_field_visibility", {})[field_key] = checked
+        save_settings(self.settings, self.controller.logger)
+        self.apply_basic_visibility()
+
     def apply_basic_visibility(self):
         visibility = self.settings.get("basic_visibility", {})
+        field_visibility = self.settings.get("basic_field_visibility", {})
         for key, group in self.basic_groups.items():
             group.setVisible(bool(visibility.get(key, True)))
+        for field_key, widgets in self.basic_field_widgets.items():
+            group_key = self.basic_field_groups.get(field_key, "")
+            visible = bool(visibility.get(group_key, True)) and bool(field_visibility.get(field_key, True))
+            for widget in widgets:
+                widget.setVisible(visible)
 
     def restore_default_settings(self):
         self.settings = reset_settings(self.controller.logger)
         for key, cb in self.settings_checks.items():
             cb.blockSignals(True)
             cb.setChecked(bool(self.settings["basic_visibility"].get(key, True)))
+            cb.blockSignals(False)
+        for key, cb in self.field_settings_checks.items():
+            cb.blockSignals(True)
+            cb.setChecked(bool(self.settings["basic_field_visibility"].get(key, True)))
             cb.blockSignals(False)
         self.apply_basic_visibility()
         self.statusBar().showMessage("Settings restored", 1500)
