@@ -4,7 +4,7 @@ import os
 import ctypes
 from datetime import datetime
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -36,6 +36,7 @@ from models import ExeCandidate, GameInfo, RegistryCandidate
 from path_wildcard_converter import PathConvertContext, convert_multiline
 from windows_paths import clean_display_path, normalize_registry_path
 from windows_shell import open_properties as shell_open_properties, open_registry_path as shell_open_registry_path, open_regedit_as_admin
+from window_picker import PickedWindow, get_window_under_cursor, is_left_button_down
 
 
 class DropLabel(QLabel):
@@ -73,6 +74,12 @@ class MainWindow(QMainWindow):
         self.settings_checks: dict[str, QCheckBox] = {}
         self.field_settings_checks: dict[str, QCheckBox] = {}
         self.game = GameInfo()
+        self.window_pick_timer = QTimer(self)
+        self.window_pick_timer.setInterval(100)
+        self.window_pick_timer.timeout.connect(self.update_window_picker)
+        self.window_pick_active = False
+        self.window_pick_seen_release = False
+        self.window_pick_last = PickedWindow()
 
         w = QWidget()
         self.setCentralWidget(w)
@@ -85,6 +92,7 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self._build_exe_tab(), "EXE Candidates")
         self.tabs.addTab(self._build_registry_tab(), "Registry Candidates")
         self.tabs.addTab(self._build_path_tab(), "Path Wildcards")
+        self.tabs.addTab(self._build_window_picker_tab(), "Window Picker / 窗口拾取")
         self.tabs.addTab(self._build_log_tab(), "Log")
         self.tabs.addTab(self._build_settings_tab(), "Settings")
         root.addLayout(self._build_copy_bar())
@@ -350,6 +358,55 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.path_output, 1)
         return page
 
+    def _build_window_picker_tab(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+
+        note = QLabel(
+            "Usually no administrator permission is needed. If the target window belongs to an elevated or protected process, "
+            "the title or class may be incomplete. Do not run the whole tool as administrator unless necessary, because that can break drag-and-drop from normal Explorer."
+        )
+        note.setWordWrap(True)
+        layout.addWidget(note)
+
+        picker_box = QGroupBox("Finder Tool")
+        picker_layout = QGridLayout(picker_box)
+        self.window_pick_button = QPushButton("Start Picking Window")
+        self.window_pick_button.clicked.connect(self.start_window_picker)
+        self.window_pick_root_check = QCheckBox("Use root/top-level window")
+        self.window_pick_root_check.setChecked(True)
+        picker_layout.addWidget(self.window_pick_button, 0, 0)
+        picker_layout.addWidget(self.window_pick_root_check, 0, 1)
+        picker_layout.addWidget(QLabel("After starting, move to a target window and left-click to lock it."), 1, 0, 1, 2)
+        layout.addWidget(picker_box)
+
+        info_box = QGroupBox("Picked Window")
+        form = QFormLayout(info_box)
+        self.window_handle = QLineEdit()
+        self.window_name = QLineEdit()
+        self.window_class = QLineEdit()
+        for edit in [self.window_handle, self.window_name, self.window_class]:
+            edit.setReadOnly(True)
+        form.addRow("Handle", self.window_handle)
+        form.addRow("Window Name", self.window_name)
+        form.addRow("Class Name", self.window_class)
+        layout.addWidget(info_box)
+
+        btns = QHBoxLayout()
+        for text, fn in [
+            ("Copy Window Name", self.copy_window_name),
+            ("Copy Class Name", self.copy_window_class),
+            ("Copy All", self.copy_window_all),
+            ("Clear", self.clear_window_picker),
+        ]:
+            b = QPushButton(text)
+            b.clicked.connect(fn)
+            btns.addWidget(b)
+        btns.addStretch(1)
+        layout.addLayout(btns)
+        layout.addStretch(1)
+        return page
+
     def _build_log_tab(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
@@ -512,6 +569,64 @@ class MainWindow(QMainWindow):
 
     def copy_log(self):
         self.copy_text(self.log.toPlainText())
+
+    def start_window_picker(self):
+        self.controller.logger.debug("WindowPicker", "start picking")
+        self.window_pick_active = True
+        self.window_pick_seen_release = False
+        self.window_pick_button.setEnabled(False)
+        self.window_pick_button.setText("Picking... left-click target")
+        QApplication.setOverrideCursor(Qt.CrossCursor)
+        self.window_pick_timer.start()
+        self.statusBar().showMessage("Move to a target window and left-click to lock it", 4000)
+
+    def stop_window_picker(self, locked: bool = False):
+        if not self.window_pick_active:
+            return
+        self.window_pick_active = False
+        self.window_pick_timer.stop()
+        QApplication.restoreOverrideCursor()
+        self.window_pick_button.setEnabled(True)
+        self.window_pick_button.setText("Start Picking Window")
+        if locked:
+            self.controller.logger.debug("WindowPicker", f"picked hwnd={self.window_pick_last.handle_text}")
+            self.statusBar().showMessage("Window picked", 1500)
+        self.controller.logger.debug("WindowPicker", "stop picking")
+
+    def update_window_picker(self):
+        if not self.window_pick_active:
+            return
+        picked = get_window_under_cursor(self.window_pick_root_check.isChecked(), self.controller.logger)
+        self.set_window_picker_info(picked)
+        left_down = is_left_button_down()
+        if not left_down:
+            self.window_pick_seen_release = True
+        elif self.window_pick_seen_release:
+            self.stop_window_picker(locked=True)
+
+    def set_window_picker_info(self, picked: PickedWindow):
+        self.window_pick_last = picked
+        self.window_handle.setText(picked.handle_text)
+        self.window_name.setText(picked.window_name or "")
+        self.window_class.setText(picked.class_name or "")
+
+    def copy_window_name(self):
+        self.copy_text(self.window_name.text(), "Window Name copied", allow_empty=True)
+
+    def copy_window_class(self):
+        self.copy_text(self.window_class.text(), "Class Name copied", allow_empty=True)
+
+    def copy_window_all(self):
+        text = (
+            f"Handle: {self.window_handle.text()}\n"
+            f"Window Name: {self.window_name.text()}\n"
+            f"Class Name: {self.window_class.text()}"
+        )
+        self.copy_text(text, "Window info copied", allow_empty=True)
+
+    def clear_window_picker(self):
+        self.stop_window_picker()
+        self.set_window_picker_info(PickedWindow())
 
     def save_log(self):
         name = f"SteamGameInfoCollector_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
