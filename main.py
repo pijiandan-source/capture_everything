@@ -78,6 +78,19 @@ def collect(appid: str = "", path: str = "", file: str = "", logger: DebugLogger
             g.install_dir = os.path.dirname(data["exe"])
             if logger:
                 logger.info("Input", f"Input exe: {data['exe']}")
+        elif data.get("shortcut_type") == ".lnk" and not data.get("steam_appid"):
+            target = data.get("target", "")
+            resolved_folder = data.get("resolved_folder", "")
+            if target and os.path.isfile(target) and target.lower().endswith(".exe"):
+                g.main_exe_path = target
+                if logger:
+                    logger.info("Input", f"Resolved .lnk target exe: {target}")
+            if resolved_folder and os.path.isdir(resolved_folder):
+                g.install_dir = resolved_folder
+                if logger:
+                    logger.info("Input", f"Resolved .lnk game folder: {resolved_folder}, reason={data.get('resolved_reason', '')}")
+            elif logger:
+                logger.warning("Input", f"Unable to resolve .lnk game folder: {path}, target={target}, working_directory={data.get('working_directory', '')}, reason={data.get('resolved_reason', data.get('error', ''))}")
     elif path and os.path.isdir(path):
         g.install_dir = path
         if logger:
