@@ -57,16 +57,47 @@ def parse_url(path: str, logger=None) -> dict:
 
 
 def parse_lnk(path: str, logger=None) -> dict:
-    pythoncom.CoInitialize()
-    link = pythoncom.CoCreateInstance(shell.CLSID_ShellLink, None, pythoncom.CLSCTX_INPROC_SERVER, shell.IID_IShellLink)
-    persist = link.QueryInterface(pythoncom.IID_IPersistFile)
-    persist.Load(path)
-    target, _ = link.GetPath(shell.SLGP_RAWPATH)
-    args = link.GetArguments()
-    wd = link.GetWorkingDirectory()
-    icon, icon_index = link.GetIconLocation()
-    icon_path, icon_index = split_icon_location(icon, icon_index)
+    target = ""
+    args = ""
+    wd = ""
+    icon = ""
+    icon_path = ""
+    icon_index: int | str = ""
+    error = ""
+    try:
+        pythoncom.CoInitialize()
+        link = pythoncom.CoCreateInstance(shell.CLSID_ShellLink, None, pythoncom.CLSCTX_INPROC_SERVER, shell.IID_IShellLink)
+        persist = link.QueryInterface(pythoncom.IID_IPersistFile)
+        persist.Load(path)
+        target, _ = link.GetPath(shell.SLGP_RAWPATH)
+        args = link.GetArguments()
+        wd = link.GetWorkingDirectory()
+        icon, icon_index = link.GetIconLocation()
+        icon_path, icon_index = split_icon_location(icon, icon_index)
+    except Exception as exc:
+        error = str(exc)
+        if logger:
+            logger.exception("Shortcut", f"Failed to parse .lnk: {path}", exc)
+
     text = f"{target} {args}"
+    steam_appid = extract_appid(text)
+    target_exists = os.path.exists(target) if target else False
+    wd_exists = os.path.isdir(wd) if wd else False
+    target_is_exe = target_exists and Path(target).suffix.lower() == ".exe"
+    resolved_folder = ""
+    resolved_reason = ""
+    if not steam_appid:
+        if wd_exists:
+            resolved_folder = wd
+            resolved_reason = "working_directory"
+        elif target_is_exe:
+            resolved_folder = str(Path(target).parent)
+            resolved_reason = "target_exe_parent"
+        elif target_exists and os.path.isdir(target):
+            resolved_folder = target
+            resolved_reason = "target_folder"
+        else:
+            resolved_reason = "no usable working directory or exe target"
     if logger:
         logger.debug("Shortcut", f"shortcut_path={path}")
         logger.debug("Shortcut", "shortcut_type=.lnk")
@@ -77,6 +108,13 @@ def parse_lnk(path: str, logger=None) -> dict:
         logger.debug("Shortcut", f"shortcut_icon_path={icon_path}")
         logger.debug("Shortcut", f"shortcut_icon_index={icon_index}")
         logger.debug("Shortcut", f"icon_exists={os.path.exists(icon_path) if icon_path else False}")
+        logger.debug("Shortcut", f"target_exists={target_exists}")
+        logger.debug("Shortcut", f"working_directory_exists={wd_exists}")
+        logger.debug("Shortcut", f"steam_appid={steam_appid}")
+        logger.debug("Shortcut", f"resolved_folder={resolved_folder}")
+        logger.debug("Shortcut", f"resolved_reason={resolved_reason}")
+        if error:
+            logger.error("Shortcut", f".lnk parse error={error}")
     return {
         "shortcut_name": Path(path).name,
         "shortcut_type": ".lnk",
@@ -84,9 +122,12 @@ def parse_lnk(path: str, logger=None) -> dict:
         "target": target,
         "arguments": args,
         "working_directory": wd,
+        "resolved_folder": resolved_folder,
+        "resolved_reason": resolved_reason,
         "shortcut_icon_path": icon_path,
         "shortcut_icon_index": str(icon_index),
-        "steam_appid": extract_appid(text),
+        "steam_appid": steam_appid,
+        "error": error,
     }
 
 
